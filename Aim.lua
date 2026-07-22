@@ -1,7 +1,4 @@
--- =============================================================================
---  AIM LOCK v22.1 | FULLY WORKING
--- =============================================================================
-
+-- AIM LOCK v23.0 | FIXED X-RAY + FAST AIM
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -16,15 +13,15 @@ local CONFIG = {
     AimPart = "Head",
     BackupPart = "UpperTorso",
     FOV = 45,
-    Smoothness = 0.85,
+    Smoothness = 0.92,          -- Увеличено для быстрого сопровождения
     DistanceLimit = 200,
-    DeadZone = 9,
+    DeadZone = 6,               -- Уменьшено для большей точности
     Prediction = true,
-    PredictionStrength = 0.45,
+    PredictionStrength = 0.55,
     PredictionMax = 1.5,
-    SwitchDelay = 0.06,
-    LostTimeout = 0.2,
-    MinSwitchDist = 15,
+    SwitchDelay = 0.04,         -- Быстрее переключение
+    LostTimeout = 0.15,         -- Быстрее потеря
+    MinSwitchDist = 12,         -- Чувствительнее к смене
     XRay = true,
     XRayColor = Color3.fromRGB(0, 255, 100),
     ShowFOV = true,
@@ -146,81 +143,7 @@ local function isVisible(plr)
 end
 
 -- ============================================================
---  ЛОГИКА ПОИСКА ЦЕЛИ
--- ============================================================
-local function findBestTarget()
-    local center = getCenter()
-    local best = nil
-    local bestDist = math.huge
-    local fovSq = CONFIG.FOV ^ 2
-    
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= Player and isAlive(plr) then
-            if not isVisible(plr) then continue end
-            
-            local part = getAimPart(plr)
-            if not part then continue end
-            
-            local screenPos = getScreenPos(part)
-            if not screenPos then continue end
-            
-            local dx = screenPos.X - center.X
-            local dy = screenPos.Y - center.Y
-            local dist = dx*dx + dy*dy
-            
-            if dist < fovSq and dist < bestDist then
-                local worldDist = getWorldDistance(plr)
-                if worldDist <= CONFIG.DistanceLimit then
-                    best = plr
-                    bestDist = dist
-                end
-            end
-        end
-    end
-    
-    return best, bestDist
-end
-
--- ============================================================
---  ПОЛУЧЕНИЕ ДАННЫХ ЦЕЛИ
--- ============================================================
-local function getTargetData(plr)
-    if not plr or not isAlive(plr) then return nil end
-    
-    local part = getAimPart(plr)
-    if not part then return nil end
-    
-    return {
-        player = plr,
-        part = part,
-        position = part.Position,
-        velocity = getVelocity(plr),
-        screenPos = getScreenPos(part),
-        worldDist = getWorldDistance(plr),
-    }
-end
-
--- ============================================================
---  ПРЕДИКЦИЯ
--- ============================================================
-local function calculatePrediction(targetData)
-    if not CONFIG.Prediction or not targetData then return targetData.position end
-    
-    local vel = targetData.velocity
-    if vel.Magnitude < 0.1 then return targetData.position end
-    
-    local dist = targetData.worldDist or getWorldDistance(targetData.player)
-    if dist > CONFIG.DistanceLimit then return targetData.position end
-    
-    local bulletSpeed = 2000
-    local flyTime = dist / bulletSpeed
-    local predTime = math.min(flyTime * CONFIG.PredictionStrength, CONFIG.PredictionMax)
-    
-    return targetData.position + vel * predTime
-end
-
--- ============================================================
---  X-RAY (ESP)
+--  X-RAY (ESP) С ИСПОЛЬЗОВАНИЕМ GETBOUNDINGBOX
 -- ============================================================
 local function createBox(plr)
     if XRayState.boxes[plr] then return end
@@ -274,7 +197,6 @@ local function createBox(plr)
         border = border,
         outline = outline,
         name = nameLabel,
-        lastUpdate = 0,
     }
 end
 
@@ -286,23 +208,69 @@ local function updateBox(plr)
         return
     end
     
-    local root = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Torso")
-    if not root then return end
+    -- Используем GetBoundingBox для точного определения размеров модели
+    local char = plr.Character
+    local modelCF, modelSize = char:GetBoundingBox()
     
-    local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
-    if not onScreen then
+    -- Если модель слишком маленькая или невалидная
+    if modelSize.Magnitude < 0.5 then
         data.container.Visible = false
         return
     end
     
-    local dist = (root.Position - Camera.CFrame.Position).Magnitude
-    local scale = math.clamp(120 / dist, 0.3, 1.5)
-    local size = 40 * scale
+    -- Получаем позицию центра модели и размер
+    local centerPos = modelCF.Position
+    local sizeX = modelSize.X
+    local sizeY = modelSize.Y
+    local sizeZ = modelSize.Z
     
-    data.container.Position = UDim2.new(0, pos.X - size/2, 0, pos.Y - size * 0.8)
-    data.container.Size = UDim2.new(0, size, 0, size * 1.6)
+    -- Минимальные размеры для видимости
+    sizeX = math.max(sizeX, 0.5)
+    sizeY = math.max(sizeY, 0.5)
+    
+    -- Переводим размеры в экранные координаты
+    -- Сначала получаем позиции границ модели в мировых координатах
+    local topPos = centerPos + Vector3.new(0, sizeY/2, 0)
+    local bottomPos = centerPos - Vector3.new(0, sizeY/2, 0)
+    local leftPos = centerPos - Vector3.new(sizeX/2, 0, 0)
+    local rightPos = centerPos + Vector3.new(sizeX/2, 0, 0)
+    
+    -- Конвертируем в экранные координаты
+    local topScreen, topOnScreen = Camera:WorldToViewportPoint(topPos)
+    local bottomScreen, bottomOnScreen = Camera:WorldToViewportPoint(bottomPos)
+    local leftScreen, leftOnScreen = Camera:WorldToViewportPoint(leftPos)
+    local rightScreen, rightOnScreen = Camera:WorldToViewportPoint(rightPos)
+    
+    -- Проверяем видимость
+    if not topOnScreen or not bottomOnScreen or not leftOnScreen or not rightOnScreen then
+        data.container.Visible = false
+        return
+    end
+    
+    -- Вычисляем размеры и позицию бокса в экранных координатах
+    local topY = topScreen.Y
+    local bottomY = bottomScreen.Y
+    local leftX = leftScreen.X
+    local rightX = rightScreen.X
+    
+    local boxHeight = math.abs(topY - bottomY)
+    local boxWidth = math.abs(rightX - leftX)
+    local boxCenterX = (leftX + rightX) / 2
+    local boxCenterY = (topY + bottomY) / 2
+    
+    -- Добавляем небольшой запас
+    local padding = 4
+    boxWidth = boxWidth + padding * 2
+    boxHeight = boxHeight + padding * 2
+    
+    -- Минимальный размер
+    boxWidth = math.max(boxWidth, 20)
+    boxHeight = math.max(boxHeight, 30)
+    
+    -- Обновляем позицию и размер
+    data.container.Position = UDim2.new(0, boxCenterX - boxWidth/2, 0, boxCenterY - boxHeight/2)
+    data.container.Size = UDim2.new(0, boxWidth, 0, boxHeight)
     data.container.Visible = true
-    data.lastUpdate = tick()
 end
 
 local function removeBox(plr)
@@ -326,6 +294,7 @@ local function updateXRay()
         return
     end
     
+    -- Удаляем мёртвых игроков
     for plr in pairs(XRayState.boxes) do
         if not plr or not isAlive(plr) then
             removeBox(plr)
@@ -395,7 +364,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.new(0, 14, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "AIM LOCK v22"
+title.Text = "AIM LOCK v23"
 title.TextColor3 = Color3.fromRGB(190, 215, 255)
 title.TextSize = 14
 title.TextXAlignment = Enum.TextXAlignment.Left
@@ -474,9 +443,7 @@ killsLabel.TextXAlignment = Enum.TextXAlignment.Left
 killsLabel.Font = Enum.Font.Gotham
 killsLabel.Parent = main
 
--- ============================================================
---  КНОПКИ
--- ============================================================
+-- КНОПКИ
 local function createButton(text, y, color)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -28, 0, 34)
@@ -502,7 +469,7 @@ local btnXRay = createButton("X-RAY: ON", 226, Color3.fromRGB(20, 60, 40))
 local btnExit = createButton("EXIT SCRIPT", 380, Color3.fromRGB(55, 20, 20))
 
 -- ============================================================
---  ВИЗУАЛЫ (FOV + CROSSHAIR)
+--  ВИЗУАЛЫ
 -- ============================================================
 local fovCircle = Instance.new("ImageLabel")
 fovCircle.Size = UDim2.new(0, CONFIG.FOV * 2, 0, CONFIG.FOV * 2)
@@ -552,6 +519,80 @@ local function createCross()
 end
 
 if CONFIG.CrosshairStyle == "DOT" then createDot() else createCross() end
+
+-- ============================================================
+--  ЛОГИКА ПОИСКА ЦЕЛИ
+-- ============================================================
+local function findBestTarget()
+    local center = getCenter()
+    local best = nil
+    local bestDist = math.huge
+    local fovSq = CONFIG.FOV ^ 2
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= Player and isAlive(plr) then
+            if not isVisible(plr) then continue end
+            
+            local part = getAimPart(plr)
+            if not part then continue end
+            
+            local screenPos = getScreenPos(part)
+            if not screenPos then continue end
+            
+            local dx = screenPos.X - center.X
+            local dy = screenPos.Y - center.Y
+            local dist = dx*dx + dy*dy
+            
+            if dist < fovSq and dist < bestDist then
+                local worldDist = getWorldDistance(plr)
+                if worldDist <= CONFIG.DistanceLimit then
+                    best = plr
+                    bestDist = dist
+                end
+            end
+        end
+    end
+    
+    return best, bestDist
+end
+
+-- ============================================================
+--  ПОЛУЧЕНИЕ ДАННЫХ ЦЕЛИ
+-- ============================================================
+local function getTargetData(plr)
+    if not plr or not isAlive(plr) then return nil end
+    
+    local part = getAimPart(plr)
+    if not part then return nil end
+    
+    return {
+        player = plr,
+        part = part,
+        position = part.Position,
+        velocity = getVelocity(plr),
+        screenPos = getScreenPos(part),
+        worldDist = getWorldDistance(plr),
+    }
+end
+
+-- ============================================================
+--  ПРЕДИКЦИЯ
+-- ============================================================
+local function calculatePrediction(targetData)
+    if not CONFIG.Prediction or not targetData then return targetData.position end
+    
+    local vel = targetData.velocity
+    if vel.Magnitude < 0.1 then return targetData.position end
+    
+    local dist = targetData.worldDist or getWorldDistance(targetData.player)
+    if dist > CONFIG.DistanceLimit then return targetData.position end
+    
+    local bulletSpeed = 2000
+    local flyTime = dist / bulletSpeed
+    local predTime = math.min(flyTime * CONFIG.PredictionStrength, CONFIG.PredictionMax)
+    
+    return targetData.position + vel * predTime
+end
 
 -- ============================================================
 --  ОСНОВНАЯ ЛОГИКА АИМА
@@ -628,7 +669,7 @@ local function processAim()
         targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
     end
     
-    -- СОПРОВОЖДЕНИЕ
+    -- СОПРОВОЖДЕНИЕ (БЫСТРОЕ)
     if State.targetData then
         State.targetData = getTargetData(State.target)
         if State.targetData then
@@ -642,6 +683,7 @@ local function processAim()
                 local dist = dx*dx + dy*dy
                 
                 if dist > CONFIG.DeadZone then
+                    -- Прямое наведение без лишних задержек
                     local newCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                     Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Smoothness)
                 end
@@ -809,43 +851,3 @@ end)
 -- ============================================================
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
-    
-    if input.KeyCode == Enum.KeyCode.One then
-        toggleAim()
-    elseif input.KeyCode == Enum.KeyCode.Two then
-        switchAimPart()
-    elseif input.KeyCode == Enum.KeyCode.Three then
-        toggleXRay()
-    end
-end)
-
--- ============================================================
---  X-RAY ОБНОВЛЕНИЕ (ОТДЕЛЬНЫЙ ПОТОК)
--- ============================================================
-task.spawn(function()
-    while true do
-        if State.enabled then
-            updateXRay()
-        end
-        task.wait(0.05)
-    end
-end)
-
--- ============================================================
---  ОСНОВНОЙ ЦИКЛ
--- ============================================================
-RunService.RenderStepped:Connect(processAim)
-
--- ============================================================
---  СТАРТ
--- ============================================================
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AIM LOCK v22",
-    Text = "1 - Toggle | 2 - Head/Body | 3 - X-Ray",
-    Duration = 4
-})
-
-print("✅ AIM LOCK v22.1 LOADED")
-print("📌 1 - Toggle ON/OFF")
-print("📌 2 - Switch aim (HEAD ↔ BODY)")
-print("📌 3 - Toggle X-RAY ON/OFF")
