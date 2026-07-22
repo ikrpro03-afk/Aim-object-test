@@ -1,22 +1,33 @@
--- AIM LOCK v14.0 | XIAOMI PAD 6 EDITION
+-- AIM LOCK v15.0 | ULTRA OPTIMIZED
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local Player = Players.LocalPlayer
 
--- ===== НАСТРОЙКИ =====
+-- ============================================================
+-- ================ НАСТРОЙКИ ==================================
+-- ============================================================
 local SPEED = 0.92
 local MODE_OBJECTS = "OBJECTS"
 local MODE_PLAYERS = "PLAYERS"
 local CROSSHAIR_STYLE = "DOT"
 
--- ===== СМЕЩЕНИЕ ЦЕНТРА =====
+-- ================ СМЕЩЕНИЕ ЦЕНТРА ===========================
 local offsetX = 0
 local offsetY = 0
 local offsetStep = 1
 
--- ===== СОСТОЯНИЕ =====
+-- ================ ОПТИМИЗАЦИЯ: КЕШИ =========================
+local cachedObjects = {}
+local cachedPlayers = {}
+local lastObjectUpdate = 0
+local OBJECT_UPDATE_INTERVAL = 0.5
+local lastTargetSearch = 0
+local TARGET_SEARCH_INTERVAL = 0.08
+local CACHE_CLEAN_INTERVAL = 5
+
+-- ================ СОСТОЯНИЕ =================================
 local mode = MODE_OBJECTS
 local enabled = false
 local visible = true
@@ -26,23 +37,15 @@ local minimized = false
 local maximized = false
 local inOffsetMenu = false
 
--- ===== ОПТИМИЗАЦИЯ: КЕШИРОВАНИЕ =====
-local cachedViewport = Vector2.new(0, 0)
-local cachedCenter = Vector2.new(0, 0)
-local cacheFrame = 0
-
+-- ================ ЦЕНТР ЭКРАНА =============================
 local function getCenter()
-    local viewport = Camera.ViewportSize
-    if viewport == cachedViewport and cacheFrame == RunService.Heartbeat:Wait() then
-        return cachedCenter
-    end
-    cachedViewport = viewport
-    cachedCenter = Vector2.new(viewport.X / 2 + offsetX, viewport.Y / 2 + offsetY)
-    cacheFrame = tick()
-    return cachedCenter
+    local vp = Camera.ViewportSize
+    return Vector2.new(vp.X * 0.5 + offsetX, vp.Y * 0.5 + offsetY)
 end
 
--- ===== СОЗДАНИЕ GUI =====
+-- ============================================================
+-- ================ GUI (БЕЗ ИЗМЕНЕНИЙ) ======================
+-- ============================================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
 gui.ResetOnSpawn = false
@@ -78,7 +81,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, -100, 1, 0)
 titleText.Position = UDim2.new(0, 12, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "AIM LOCK v14.0"
+titleText.Text = "AIM LOCK v15.0"
 titleText.TextColor3 = Color3.fromRGB(180, 210, 255)
 titleText.TextSize = 13
 titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -232,7 +235,7 @@ local btnCorner5 = Instance.new("UICorner")
 btnCorner5.CornerRadius = UDim.new(0, 6)
 btnCorner5.Parent = btnHide
 
--- ===== КНОПКА НАСТРОЙКИ СМЕЩЕНИЯ =====
+-- КНОПКА НАСТРОЙКИ СМЕЩЕНИЯ
 local btnOffset = Instance.new("TextButton")
 btnOffset.Size = UDim2.new(1, -24, 0, 34)
 btnOffset.Position = UDim2.new(0, 12, 0, 300)
@@ -248,7 +251,7 @@ local btnCorner6 = Instance.new("UICorner")
 btnCorner6.CornerRadius = UDim.new(0, 6)
 btnCorner6.Parent = btnOffset
 
--- ===== МЕНЮ НАСТРОЙКИ СМЕЩЕНИЯ =====
+-- МЕНЮ СМЕЩЕНИЯ
 local offsetMenu = Instance.new("Frame")
 offsetMenu.Size = UDim2.new(1, -24, 0, 0)
 offsetMenu.Position = UDim2.new(0, 12, 0, 340)
@@ -263,7 +266,6 @@ local offsetCorner = Instance.new("UICorner")
 offsetCorner.CornerRadius = UDim.new(0, 6)
 offsetCorner.Parent = offsetMenu
 
--- ТЕКСТ СМЕЩЕНИЯ
 local offsetLabel = Instance.new("TextLabel")
 offsetLabel.Size = UDim2.new(1, 0, 0, 20)
 offsetLabel.Position = UDim2.new(0, 0, 0, 4)
@@ -274,7 +276,6 @@ offsetLabel.TextSize = 12
 offsetLabel.Font = Enum.Font.Gotham
 offsetLabel.Parent = offsetMenu
 
--- КНОПКИ СМЕЩЕНИЯ
 local btnUp = Instance.new("TextButton")
 btnUp.Size = UDim2.new(0, 40, 0, 28)
 btnUp.Position = UDim2.new(0.5, -20, 0, 28)
@@ -335,7 +336,6 @@ local btnCornerR = Instance.new("UICorner")
 btnCornerR.CornerRadius = UDim.new(0, 4)
 btnCornerR.Parent = btnRight
 
--- КНОПКА SAVE
 local btnSave = Instance.new("TextButton")
 btnSave.Size = UDim2.new(0, 60, 0, 28)
 btnSave.Position = UDim2.new(0.5, -64, 0, 92)
@@ -351,7 +351,6 @@ local btnCornerS = Instance.new("UICorner")
 btnCornerS.CornerRadius = UDim.new(0, 4)
 btnCornerS.Parent = btnSave
 
--- КНОПКА EXIT (выйти из меню смещения)
 local btnExitOffset = Instance.new("TextButton")
 btnExitOffset.Size = UDim2.new(0, 60, 0, 28)
 btnExitOffset.Position = UDim2.new(0.5, 4, 0, 92)
@@ -390,11 +389,6 @@ crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
 crosshair.BackgroundTransparency = 1
 crosshair.Parent = gui
 
-local function updateCrosshair()
-    crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
-end
-
--- Создание стилей
 local function createDot()
     for _, c in pairs(crosshair:GetChildren()) do c:Destroy() end
     local dot = Instance.new("Frame")
@@ -451,17 +445,17 @@ local function setStyle(style)
     else
         createCross()
     end
-    updateCrosshair()
 end
 
 setStyle("DOT")
 
--- ===== ПОИСК ОБЪЕКТА =====
-local function findObject()
-    local center = getCenter()
-    local best = nil
-    local bestDist = math.huge
-    
+-- ============================================================
+-- ================ ОПТИМИЗИРОВАННАЯ ЛОГИКА =================
+-- ============================================================
+
+-- ===== 1. КЕШИРОВАНИЕ ОБЪЕКТОВ (раз в секунду) =====
+local function updateObjectCache()
+    local objects = {}
     for _, v in pairs(workspace:GetDescendants()) do
         if v:IsA("BasePart") and v.Parent ~= Player.Character then
             local isPlayer = false
@@ -473,15 +467,44 @@ local function findObject()
                 end
                 p = p.Parent
             end
-            
             if not isPlayer then
-                local pos, onScreen = Camera:WorldToViewportPoint(v.Position)
-                if onScreen then
-                    local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                    if dist < 300 and dist < bestDist then
-                        best = v
-                        bestDist = dist
-                    end
+                table.insert(objects, v)
+            end
+        end
+    end
+    cachedObjects = objects
+end
+
+-- ===== 2. КЕШИРОВАНИЕ ИГРОКОВ =====
+local function updatePlayerCache()
+    local players = {}
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= Player and plr.Character then
+            local torso = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Torso")
+            if torso then
+                table.insert(players, plr)
+            end
+        end
+    end
+    cachedPlayers = players
+end
+
+-- ===== 3. ПОИСК ОБЪЕКТА (БЕЗ SQRT) =====
+local function findObjectOptimized()
+    local center = getCenter()
+    local best = nil
+    local bestDist = math.huge
+    
+    for _, v in ipairs(cachedObjects) do
+        if v and v.Parent then
+            local pos, onScreen = Camera:WorldToViewportPoint(v.Position)
+            if onScreen then
+                local dx = pos.X - center.X
+                local dy = pos.Y - center.Y
+                local dist = dx*dx + dy*dy
+                if dist < 90000 and dist < bestDist then  -- 300^2 = 90000
+                    best = v
+                    bestDist = dist
                 end
             end
         end
@@ -490,20 +513,22 @@ local function findObject()
     return best
 end
 
--- ===== ПОИСК ИГРОКА =====
-local function findPlayer()
+-- ===== 4. ПОИСК ИГРОКА =====
+local function findPlayerOptimized()
     local center = getCenter()
     local best = nil
     local bestDist = math.huge
     
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= Player and plr.Character then
+    for _, plr in ipairs(cachedPlayers) do
+        if plr and plr.Character then
             local torso = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Torso")
             if torso then
                 local pos, onScreen = Camera:WorldToViewportPoint(torso.Position)
                 if onScreen then
-                    local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                    if dist < 300 and dist < bestDist then
+                    local dx = pos.X - center.X
+                    local dy = pos.Y - center.Y
+                    local dist = dx*dx + dy*dy
+                    if dist < 90000 and dist < bestDist then
                         best = plr
                         bestDist = dist
                     end
@@ -515,14 +540,19 @@ local function findPlayer()
     return best
 end
 
--- ===== ФИКСАЦИЯ =====
-local function lockObject(obj)
+-- ===== 5. ФИКСАЦИЯ (С ПОРОГОМ) =====
+local function lockObjectOptimized(obj)
     if not obj or not obj.Parent then return false end
+    
     local pos, onScreen = Camera:WorldToViewportPoint(obj.Position)
     if not onScreen then return false end
+    
     local center = getCenter()
-    local offset = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-    if offset > 0.5 then
+    local dx = pos.X - center.X
+    local dy = pos.Y - center.Y
+    local dist = dx*dx + dy*dy
+    
+    if dist > 4 then  -- 2^2 = 4
         local newCF = CFrame.lookAt(Camera.CFrame.Position, obj.Position)
         Camera.CFrame = Camera.CFrame:Lerp(newCF, SPEED)
         return true
@@ -530,15 +560,21 @@ local function lockObject(obj)
     return true
 end
 
-local function lockPlayer(plr)
+local function lockPlayerOptimized(plr)
     if not plr or not plr.Character then return false end
+    
     local torso = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Torso")
     if not torso then return false end
+    
     local pos, onScreen = Camera:WorldToViewportPoint(torso.Position)
     if not onScreen then return false end
+    
     local center = getCenter()
-    local offset = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-    if offset > 0.5 then
+    local dx = pos.X - center.X
+    local dy = pos.Y - center.Y
+    local dist = dx*dx + dy*dy
+    
+    if dist > 4 then
         local newCF = CFrame.lookAt(Camera.CFrame.Position, torso.Position)
         Camera.CFrame = Camera.CFrame:Lerp(newCF, SPEED)
         return true
@@ -546,7 +582,15 @@ local function lockPlayer(plr)
     return true
 end
 
--- ===== ОСНОВНАЯ ЛОГИКА =====
+-- ===== 6. ГЛАВНЫЙ ЦИКЛ ПОИСКА =====
+local function findTarget()
+    if mode == MODE_OBJECTS then
+        return findObjectOptimized()
+    else
+        return findPlayerOptimized()
+    end
+end
+
 local function processAim()
     if not enabled then return end
     
@@ -558,89 +602,105 @@ local function processAim()
                 targetLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
                 return
             end
-            lockObject(lockedTarget)
+            lockObjectOptimized(lockedTarget)
             targetLabel.Text = "TARGET: LOCKED"
             targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
         else
-            if not lockedTarget.Character or not lockedTarget.Character:FindFirstChild("HumanoidRootPart") then
+            if not lockedTarget.Character or not (lockedTarget.Character:FindFirstChild("HumanoidRootPart") or lockedTarget.Character:FindFirstChild("Torso")) then
                 lockedTarget = nil
                 targetLabel.Text = "TARGET: LOST"
                 targetLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
                 return
             end
-            lockPlayer(lockedTarget)
+            lockPlayerOptimized(lockedTarget)
             targetLabel.Text = "TARGET: LOCKED"
             targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
         end
         return
     end
     
-    if mode == MODE_OBJECTS then
-        if not target or not target.Parent then
-            target = findObject()
-            if not target then
-                status.Text = "NO OBJECT"
-                status.TextColor3 = Color3.fromRGB(255, 200, 100)
-                targetLabel.Text = "TARGET: NONE"
-                targetLabel.TextColor3 = Color3.fromRGB(200, 200, 150)
+    -- АВТОПОИСК (раз в 0.08 секунды)
+    if tick() - lastTargetSearch > TARGET_SEARCH_INTERVAL then
+        lastTargetSearch = tick()
+        local newTarget = findTarget()
+        if newTarget then
+            target = newTarget
+            status.Text = mode == MODE_OBJECTS and "OBJECT FOUND" or "PLAYER FOUND"
+            status.TextColor3 = Color3.fromRGB(100, 255, 200)
+            targetLabel.Text = mode == MODE_OBJECTS and "TARGET: OBJECT" or "TARGET: PLAYER"
+            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+        elseif not target then
+            status.Text = mode == MODE_OBJECTS and "NO OBJECT" or "NO PLAYER"
+            status.TextColor3 = Color3.fromRGB(255, 200, 100)
+            targetLabel.Text = "TARGET: NONE"
+            targetLabel.TextColor3 = Color3.fromRGB(200, 200, 150)
+        end
+    end
+    
+    -- ФИКСАЦИЯ (каждый кадр)
+    if target then
+        if mode == MODE_OBJECTS then
+            if not target.Parent then
+                target = nil
                 return
             end
-            status.Text = "OBJECT FOUND"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: OBJECT"
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-        end
-        lockObject(target)
-    else
-        if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
-            target = findPlayer()
-            if not target then
-                status.Text = "NO PLAYER"
-                status.TextColor3 = Color3.fromRGB(255, 200, 100)
-                targetLabel.Text = "TARGET: NONE"
-                targetLabel.TextColor3 = Color3.fromRGB(200, 200, 150)
+            lockObjectOptimized(target)
+        else
+            if not target.Character or not (target.Character:FindFirstChild("HumanoidRootPart") or target.Character:FindFirstChild("Torso")) then
+                target = nil
                 return
             end
-            status.Text = "PLAYER FOUND"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: PLAYER"
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+            lockPlayerOptimized(target)
         end
-        lockPlayer(target)
     end
 end
 
--- ===== УПРАВЛЕНИЕ =====
+-- ===== 7. ФОНОВОЕ ОБНОВЛЕНИЕ КЕШЕЙ =====
+task.spawn(function()
+    while true do
+        updateObjectCache()
+        updatePlayerCache()
+        task.wait(OBJECT_UPDATE_INTERVAL)
+    end
+end)
+
+-- ===== 8. ПЕРИОДИЧЕСКАЯ ОЧИСТКА КЕША =====
+task.spawn(function()
+    while true do
+        task.wait(CACHE_CLEAN_INTERVAL)
+        -- Очищаем мёртвые объекты
+        local newObjects = {}
+        for _, v in ipairs(cachedObjects) do
+            if v and v.Parent then
+                table.insert(newObjects, v)
+            end
+        end
+        cachedObjects = newObjects
+        
+        -- Обновляем игроков
+        updatePlayerCache()
+    end
+end)
+
+-- ============================================================
+-- ================ УПРАВЛЕНИЕ ================================
+-- ============================================================
+
 local function toggle()
     enabled = not enabled
     if enabled then
-        if mode == MODE_OBJECTS then
-            target = findObject()
-            if not target then
-                enabled = false
-                status.Text = "NO OBJECT"
-                status.TextColor3 = Color3.fromRGB(255, 200, 100)
-                btnToggle.Text = "RETRY"
-                return
-            end
-            status.Text = "OBJECT FOUND"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: OBJECT"
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-        else
-            target = findPlayer()
-            if not target then
-                enabled = false
-                status.Text = "NO PLAYER"
-                status.TextColor3 = Color3.fromRGB(255, 200, 100)
-                btnToggle.Text = "RETRY"
-                return
-            end
-            status.Text = "PLAYER FOUND"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: PLAYER"
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+        target = findTarget()
+        if not target then
+            enabled = false
+            status.Text = mode == MODE_OBJECTS and "NO OBJECT" or "NO PLAYER"
+            status.TextColor3 = Color3.fromRGB(255, 200, 100)
+            btnToggle.Text = "RETRY"
+            return
         end
+        status.Text = mode == MODE_OBJECTS and "OBJECT FOUND" or "PLAYER FOUND"
+        status.TextColor3 = Color3.fromRGB(100, 255, 200)
+        targetLabel.Text = mode == MODE_OBJECTS and "TARGET: OBJECT" or "TARGET: PLAYER"
+        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
         btnToggle.Text = "DEACTIVATE"
         btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)
         btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
@@ -677,32 +737,17 @@ local function lockCurrentTarget()
         return
     end
     
-    if mode == MODE_OBJECTS then
-        if target and target.Parent then
-            lockedTarget = target
-            targetLabel.Text = "TARGET: LOCKED"
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-            btnLock.Text = "UNLOCK TARGET"
-            btnLock.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
-            status.Text = "OBJECT LOCKED"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-        else
-            status.Text = "NO TARGET TO LOCK"
-            status.TextColor3 = Color3.fromRGB(255, 200, 100)
-        end
+    if target then
+        lockedTarget = target
+        targetLabel.Text = "TARGET: LOCKED"
+        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+        btnLock.Text = "UNLOCK TARGET"
+        btnLock.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
+        status.Text = mode == MODE_OBJECTS and "OBJECT LOCKED" or "PLAYER LOCKED"
+        status.TextColor3 = Color3.fromRGB(100, 255, 200)
     else
-        if target and target.Character then
-            lockedTarget = target
-            targetLabel.Text = "TARGET: LOCKED"
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-            btnLock.Text = "UNLOCK TARGET"
-            btnLock.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
-            status.Text = "PLAYER LOCKED"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-        else
-            status.Text = "NO TARGET TO LOCK"
-            status.TextColor3 = Color3.fromRGB(255, 200, 100)
-        end
+        status.Text = "NO TARGET TO LOCK"
+        status.TextColor3 = Color3.fromRGB(255, 200, 100)
     end
 end
 
@@ -745,7 +790,7 @@ local function hideCrosshair()
     btnHide.Text = visible and "HIDE CROSSHAIR" or "SHOW CROSSHAIR"
 end
 
--- ===== МЕНЮ СМЕЩЕНИЯ =====
+-- МЕНЮ СМЕЩЕНИЯ
 local function toggleOffsetMenu()
     inOffsetMenu = not inOffsetMenu
     if inOffsetMenu then
@@ -779,6 +824,7 @@ local function saveOffset()
     status.TextColor3 = Color3.fromRGB(100, 255, 200)
 end
 
+-- СВЕРНУТЬ
 local function minimizeMenu()
     minimized = not minimized
     if minimized then
@@ -900,18 +946,17 @@ end)
 
 -- ===== ГЛАВНЫЙ ЦИКЛ (ОПТИМИЗИРОВАННЫЙ) =====
 RunService.RenderStepped:Connect(function()
-    updateCrosshair()
     processAim()
 end)
 
 -- ===== УВЕДОМЛЕНИЕ =====
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AIM LOCK v14.0",
+    Title = "AIM LOCK v15.0",
     Text = "1 - Toggle | 4 - Lock | 6 - Offset",
     Duration = 4
 })
 
-print("✅ AIM LOCK v14.0 LOADED")
+print("✅ AIM LOCK v15.0 LOADED (ULTRA OPTIMIZED)")
 print("📌 1 - Toggle ON/OFF")
 print("📌 2 - Hide/Show crosshair")
 print("📌 3 - Switch mode (OBJECTS ↔ PLAYERS)")
