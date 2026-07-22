@@ -1,4 +1,4 @@
--- AIM LOCK v30.0 | FULL PROTECTION
+-- AIM LOCK v30.1 | FULL COMPLETE
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -59,13 +59,18 @@ local XRayState = {
 }
 
 -- ============================================================
+--  ПРОВЕРКА PLAYERGUI
+-- ============================================================
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+-- ============================================================
 --  GUI
 -- ============================================================
 local function buildGUI()
     local gui = Instance.new("ScreenGui")
     gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
     gui.ResetOnSpawn = false
-    gui.Parent = Player.PlayerGui
+    gui.Parent = PlayerGui
     gui.DisplayOrder = 999
 
     local main = Instance.new("Frame")
@@ -263,6 +268,24 @@ end
 local GUI = buildGUI()
 
 -- ============================================================
+--  ОБНОВЛЕНИЕ RAYCAST ФИЛЬТРА ПРИ РЕСПАВНЕ
+-- ============================================================
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+local function updateRaycastFilter(char)
+    if char then
+        raycastParams.FilterDescendantsInstances = {char}
+    end
+end
+
+updateRaycastFilter(Player.Character)
+
+Player.CharacterAdded:Connect(function(char)
+    updateRaycastFilter(char)
+end)
+
+-- ============================================================
 --  БЕЗОПАСНОЕ ОБНОВЛЕНИЕ GUI
 -- ============================================================
 local function updateGUI(statusText, statusColor, targetText, targetColor, killsText)
@@ -304,7 +327,7 @@ end)
 --  УТИЛИТЫ
 -- ============================================================
 local function isPlayerValid()
-    return Player and Player.Parent and Player.Character
+    return Player and Player.Parent and Player.Character and Player.Character.Parent
 end
 
 local function isAlive(plr)
@@ -345,12 +368,8 @@ local function getCenter()
 end
 
 -- ============================================================
---  VISIBILITY (ЗАЩИЩЁННЫЙ RAYCAST)
+--  VISIBILITY
 -- ============================================================
-local raycastParams = RaycastParams.new()
-raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-raycastParams.FilterDescendantsInstances = {Player.Character}
-
 local function isVisible(plr)
     if not plr or not plr.Character or not plr.Character.Parent then return false end
     if not Camera then return false end
@@ -365,11 +384,7 @@ local function isVisible(plr)
     
     if distance > CONFIG.DistanceLimit then return false end
     
-    local success, result = pcall(function()
-        return workspace:Raycast(origin, direction * distance, raycastParams)
-    end)
-    
-    if not success then return false end
+    local result = workspace:Raycast(origin, direction * distance, raycastParams)
     if not result then return true end
     
     local hit = result.Instance
@@ -383,7 +398,7 @@ local function isVisible(plr)
 end
 
 -- ============================================================
---  X-RAY (СО ВСЕМИ ПРОВЕРКАМИ)
+--  X-RAY
 -- ============================================================
 local XRAY_PARTS = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftFoot", "RightFoot", "LeftHand", "RightHand"}
 
@@ -708,9 +723,7 @@ local function processAim(dt)
                 end
                 
                 if Camera and State.smoothCF then
-                    pcall(function()
-                        Camera.CFrame = State.smoothCF
-                    end)
+                    Camera.CFrame = State.smoothCF
                 end
             end
             
@@ -749,9 +762,7 @@ local function processAim(dt)
         if State.targetCF then
             State.smoothCF = State.targetCF
             if Camera then
-                pcall(function()
-                    Camera.CFrame = State.smoothCF
-                end)
+                Camera.CFrame = State.smoothCF
             end
         end
         
@@ -801,9 +812,7 @@ local function toggleAim()
             updateTargetCF(target)
             if State.targetCF and Camera then
                 State.smoothCF = State.targetCF
-                pcall(function()
-                    Camera.CFrame = State.smoothCF
-                end)
+                Camera.CFrame = State.smoothCF
             end
             
             updateGUI(
@@ -917,4 +926,175 @@ local function toggleXRay()
     
     if GUI.btnXRay and GUI.btnXRay.Parent then
         GUI.btnXRay.Text = XRayState.enabled and "X-RAY: ON" or "X-RAY: OFF"
-        GUI.btnXRay.BackgroundColor3 = XRayState.enabled and Color3.fromRGB(20, 60, 40) or Color3.fromRGB(60, 20,
+        GUI.btnXRay.BackgroundColor3 = XRayState.enabled and Color3.fromRGB(20, 60, 40) or Color3.fromRGB(60, 20, 20)
+    end
+    
+    if not XRayState.enabled then
+        clearAllBoxes()
+        clearPartsCache()
+        if XRayState.container and XRayState.container.Parent then
+            XRayState.container:Destroy()
+            XRayState.container = nil
+        end
+    elseif not XRayState.container or not XRayState.container.Parent then
+        XRayState.container = Instance.new("Folder")
+        XRayState.container.Name = "XRay"
+        XRayState.container.Parent = GUI.gui
+    end
+end
+
+-- ============================================================
+--  ОБРАБОТЧИКИ СОБЫТИЙ
+-- ============================================================
+local connections = {}
+local function connect(obj, event, callback)
+    local conn
+    if type(obj) == "string" then
+        -- для UserInputService
+        conn = event:Connect(callback)
+    else
+        conn = obj[event]:Connect(callback)
+    end
+    table.insert(connections, conn)
+    return conn
+end
+
+-- Привязка кнопок
+connect(GUI.btnToggle, "MouseButton1Click", toggleAim)
+connect(GUI.btnAimPart, "MouseButton1Click", switchAimPart)
+connect(GUI.btnXRay, "MouseButton1Click", toggleXRay)
+
+connect(GUI.winButtons.minimize, "MouseButton1Click", function()
+    State.minimized = not State.minimized
+    if State.minimized then
+        GUI.main:TweenSize(UDim2.new(0, 200, 0, 36), "Out", "Quad", 0.3, true)
+        for _, child in ipairs(GUI.main:GetChildren()) do
+            if child:IsA("TextLabel") or (child:IsA("TextButton") and child ~= GUI.header) then
+                child.Visible = false
+            end
+        end
+        GUI.winButtons.minimize.Text = "□"
+    else
+        GUI.main:TweenSize(UDim2.new(0, 280, 0, 420), "Out", "Quad", 0.3, true)
+        for _, child in ipairs(GUI.main:GetChildren()) do
+            if child:IsA("TextLabel") or child:IsA("TextButton") then
+                child.Visible = true
+            end
+        end
+        GUI.winButtons.minimize.Text = "─"
+    end
+end)
+
+connect(GUI.winButtons.maximize, "MouseButton1Click", function()
+    State.maximized = not State.maximized
+    if State.maximized then
+        GUI.main:TweenSize(UDim2.new(0, 400, 0, 480), "Out", "Quad", 0.3, true)
+        GUI.main:TweenPosition(UDim2.new(0.5, -200, 0.5, -240), "Out", "Quad", 0.3, true)
+    else
+        GUI.main:TweenSize(UDim2.new(0, 280, 0, 420), "Out", "Quad", 0.3, true)
+        GUI.main:TweenPosition(UDim2.new(0, 16, 0, 16), "Out", "Quad", 0.3, true)
+    end
+end)
+
+-- Клавиатура
+local keyConn = UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if State.destroyed then return end
+    
+    if input.KeyCode == Enum.KeyCode.One then
+        toggleAim()
+    elseif input.KeyCode == Enum.KeyCode.Two then
+        switchAimPart()
+    elseif input.KeyCode == Enum.KeyCode.Three then
+        toggleXRay()
+    end
+end)
+table.insert(connections, keyConn)
+
+-- Обработка выхода игрока
+Players.PlayerRemoving:Connect(function(plr)
+    removeBox(plr)
+    clearPartsCache(plr)
+    if State.target == plr then
+        State.target = nil
+        State.targetCF = nil
+        State.smoothCF = nil
+    end
+end)
+
+-- Очистка кэша при смене персонажа
+for _, plr in pairs(Players:GetPlayers()) do
+    if plr ~= Player then
+        plr.CharacterAdded:Connect(function()
+            clearPartsCache(plr)
+        end)
+        plr.CharacterRemoving:Connect(function()
+            clearPartsCache(plr)
+        end)
+    end
+end
+
+-- ============================================================
+--  CLEANUP (ПОЛНАЯ ОЧИСТКА)
+-- ============================================================
+local function cleanup()
+    if State.cleaned then return end
+    State.cleaned = true
+    State.destroyed = true
+    
+    -- Отключаем все соединения
+    for _, conn in ipairs(connections) do
+        if conn and conn.Disconnect then
+            pcall(conn.Disconnect, conn)
+        end
+    end
+    connections = {}
+    
+    -- Удаляем GUI
+    if GUI.gui and GUI.gui.Parent then
+        pcall(function() GUI.gui:Destroy() end)
+    end
+    
+    -- Удаляем X-Ray контейнер
+    if XRayState.container and XRayState.container.Parent then
+        pcall(function() XRayState.container:Destroy() end)
+        XRayState.container = nil
+    end
+    
+    -- Очищаем боксы и кэш
+    clearAllBoxes()
+    clearPartsCache()
+    
+    -- Сбрасываем состояние
+    State.enabled = false
+    State.target = nil
+    State.targetCF = nil
+    State.smoothCF = nil
+end
+
+-- Привязываем кнопку выхода и закрытия
+connect(GUI.winButtons.close, "MouseButton1Click", cleanup)
+connect(GUI.btnExit, "MouseButton1Click", cleanup)
+
+-- ============================================================
+--  RENDERSTEP (С ЗАЩИТОЙ)
+-- ============================================================
+local renderConn = RunService.RenderStepped:Connect(function(dt)
+    if State.destroyed then return end
+    pcall(processAim, dt)
+end)
+table.insert(connections, renderConn)
+
+-- ============================================================
+--  СТАРТ
+-- ============================================================
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "AIM LOCK v30",
+    Text = "1 - Toggle | 2 - Head/Body | 3 - X-Ray",
+    Duration = 4
+})
+
+print("✅ AIM LOCK v30.1 LOADED")
+print("📌 1 - Toggle ON/OFF")
+print("📌 2 - Switch aim (HEAD ↔ BODY)")
+print("📌 3 - Toggle X-RAY")
