@@ -1,4 +1,4 @@
--- AIM LOCK v23.0 | FIXED X-RAY + FAST AIM
+-- AIM LOCK v23.1 | FIXED
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -13,15 +13,15 @@ local CONFIG = {
     AimPart = "Head",
     BackupPart = "UpperTorso",
     FOV = 45,
-    Smoothness = 0.92,          -- Увеличено для быстрого сопровождения
+    Smoothness = 0.92,
     DistanceLimit = 200,
-    DeadZone = 6,               -- Уменьшено для большей точности
+    DeadZone = 6,
     Prediction = true,
     PredictionStrength = 0.55,
     PredictionMax = 1.5,
-    SwitchDelay = 0.04,         -- Быстрее переключение
-    LostTimeout = 0.15,         -- Быстрее потеря
-    MinSwitchDist = 12,         -- Чувствительнее к смене
+    SwitchDelay = 0.04,
+    LostTimeout = 0.15,
+    MinSwitchDist = 12,
     XRay = true,
     XRayColor = Color3.fromRGB(0, 255, 100),
     ShowFOV = true,
@@ -208,68 +208,70 @@ local function updateBox(plr)
         return
     end
     
-    -- Используем GetBoundingBox для точного определения размеров модели
     local char = plr.Character
     local modelCF, modelSize = char:GetBoundingBox()
     
-    -- Если модель слишком маленькая или невалидная
     if modelSize.Magnitude < 0.5 then
         data.container.Visible = false
         return
     end
     
-    -- Получаем позицию центра модели и размер
-    local centerPos = modelCF.Position
-    local sizeX = modelSize.X
-    local sizeY = modelSize.Y
-    local sizeZ = modelSize.Z
+    -- Получаем 8 углов BoundingBox
+    local center = modelCF.Position
+    local sx, sy, sz = modelSize.X/2, modelSize.Y/2, modelSize.Z/2
+    local right = modelCF.RightVector
+    local up = modelCF.UpVector
+    local look = modelCF.LookVector
     
-    -- Минимальные размеры для видимости
-    sizeX = math.max(sizeX, 0.5)
-    sizeY = math.max(sizeY, 0.5)
+    local corners = {
+        center + right*sx + up*sy + look*sz,
+        center + right*sx + up*sy - look*sz,
+        center + right*sx - up*sy + look*sz,
+        center + right*sx - up*sy - look*sz,
+        center - right*sx + up*sy + look*sz,
+        center - right*sx + up*sy - look*sz,
+        center - right*sx - up*sy + look*sz,
+        center - right*sx - up*sy - look*sz,
+    }
     
-    -- Переводим размеры в экранные координаты
-    -- Сначала получаем позиции границ модели в мировых координатах
-    local topPos = centerPos + Vector3.new(0, sizeY/2, 0)
-    local bottomPos = centerPos - Vector3.new(0, sizeY/2, 0)
-    local leftPos = centerPos - Vector3.new(sizeX/2, 0, 0)
-    local rightPos = centerPos + Vector3.new(sizeX/2, 0, 0)
+    -- Конвертируем все углы в экранные координаты
+    local screenCorners = {}
+    for _, cornerPos in ipairs(corners) do
+        local screenPos, onScreen = Camera:WorldToViewportPoint(cornerPos)
+        if onScreen then
+            table.insert(screenCorners, Vector2.new(screenPos.X, screenPos.Y))
+        end
+    end
     
-    -- Конвертируем в экранные координаты
-    local topScreen, topOnScreen = Camera:WorldToViewportPoint(topPos)
-    local bottomScreen, bottomOnScreen = Camera:WorldToViewportPoint(bottomPos)
-    local leftScreen, leftOnScreen = Camera:WorldToViewportPoint(leftPos)
-    local rightScreen, rightOnScreen = Camera:WorldToViewportPoint(rightPos)
-    
-    -- Проверяем видимость
-    if not topOnScreen or not bottomOnScreen or not leftOnScreen or not rightOnScreen then
+    -- Если ни одного угла не видно, скрываем
+    if #screenCorners == 0 then
         data.container.Visible = false
         return
     end
     
-    -- Вычисляем размеры и позицию бокса в экранных координатах
-    local topY = topScreen.Y
-    local bottomY = bottomScreen.Y
-    local leftX = leftScreen.X
-    local rightX = rightScreen.X
+    -- Находим минимальные и максимальные X и Y
+    local minX, maxX = screenCorners[1].X, screenCorners[1].X
+    local minY, maxY = screenCorners[1].Y, screenCorners[1].Y
     
-    local boxHeight = math.abs(topY - bottomY)
-    local boxWidth = math.abs(rightX - leftX)
-    local boxCenterX = (leftX + rightX) / 2
-    local boxCenterY = (topY + bottomY) / 2
+    for i = 2, #screenCorners do
+        local p = screenCorners[i]
+        if p.X < minX then minX = p.X end
+        if p.X > maxX then maxX = p.X end
+        if p.Y < minY then minY = p.Y end
+        if p.Y > maxY then maxY = p.Y end
+    end
     
-    -- Добавляем небольшой запас
+    -- Добавляем отступ
     local padding = 4
-    boxWidth = boxWidth + padding * 2
-    boxHeight = boxHeight + padding * 2
+    local width = maxX - minX + padding * 2
+    local height = maxY - minY + padding * 2
     
     -- Минимальный размер
-    boxWidth = math.max(boxWidth, 20)
-    boxHeight = math.max(boxHeight, 30)
+    width = math.max(width, 20)
+    height = math.max(height, 30)
     
-    -- Обновляем позицию и размер
-    data.container.Position = UDim2.new(0, boxCenterX - boxWidth/2, 0, boxCenterY - boxHeight/2)
-    data.container.Size = UDim2.new(0, boxWidth, 0, boxHeight)
+    data.container.Position = UDim2.new(0, minX - padding, 0, minY - padding)
+    data.container.Size = UDim2.new(0, width, 0, height)
     data.container.Visible = true
 end
 
@@ -327,7 +329,7 @@ local function updateXRay()
 end
 
 -- ============================================================
---  GUI
+--  GUI (полностью рабочий)
 -- ============================================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
@@ -335,7 +337,6 @@ gui.ResetOnSpawn = false
 gui.Parent = Player.PlayerGui
 gui.DisplayOrder = 999
 
--- ОСНОВНОЕ ОКНО
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, 280, 0, 420)
 main.Position = UDim2.new(0, 16, 0, 16)
@@ -531,13 +532,19 @@ local function findBestTarget()
     
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= Player and isAlive(plr) then
-            if not isVisible(plr) then continue end
+            if not isVisible(plr) then 
+                continue 
+            end
             
             local part = getAimPart(plr)
-            if not part then continue end
+            if not part then 
+                continue 
+            end
             
             local screenPos = getScreenPos(part)
-            if not screenPos then continue end
+            if not screenPos then 
+                continue 
+            end
             
             local dx = screenPos.X - center.X
             local dy = screenPos.Y - center.Y
@@ -579,13 +586,19 @@ end
 --  ПРЕДИКЦИЯ
 -- ============================================================
 local function calculatePrediction(targetData)
-    if not CONFIG.Prediction or not targetData then return targetData.position end
+    if not CONFIG.Prediction or not targetData then 
+        return targetData and targetData.position or nil 
+    end
     
     local vel = targetData.velocity
-    if vel.Magnitude < 0.1 then return targetData.position end
+    if vel.Magnitude < 0.1 then 
+        return targetData.position 
+    end
     
     local dist = targetData.worldDist or getWorldDistance(targetData.player)
-    if dist > CONFIG.DistanceLimit then return targetData.position end
+    if dist > CONFIG.DistanceLimit then 
+        return targetData.position 
+    end
     
     local bulletSpeed = 2000
     local flyTime = dist / bulletSpeed
@@ -598,7 +611,9 @@ end
 --  ОСНОВНАЯ ЛОГИКА АИМА
 -- ============================================================
 local function processAim()
-    if not State.enabled then return end
+    if not State.enabled then 
+        return 
+    end
     
     State.frameCount = State.frameCount + 1
     
@@ -669,23 +684,24 @@ local function processAim()
         targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
     end
     
-    -- СОПРОВОЖДЕНИЕ (БЫСТРОЕ)
+    -- СОПРОВОЖДЕНИЕ
     if State.targetData then
         State.targetData = getTargetData(State.target)
         if State.targetData then
             local targetPos = calculatePrediction(State.targetData)
             
-            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
-            if onScreen then
-                local center = getCenter()
-                local dx = screenPos.X - center.X
-                local dy = screenPos.Y - center.Y
-                local dist = dx*dx + dy*dy
-                
-                if dist > CONFIG.DeadZone then
-                    -- Прямое наведение без лишних задержек
-                    local newCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                    Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Smoothness)
+            if targetPos then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
+                if onScreen then
+                    local center = getCenter()
+                    local dx = screenPos.X - center.X
+                    local dy = screenPos.Y - center.Y
+                    local dist = dx*dx + dy*dy
+                    
+                    if dist > CONFIG.DeadZone then
+                        local newCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                        Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Smoothness)
+                    end
                 end
             end
         end
@@ -851,3 +867,16 @@ end)
 -- ============================================================
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
+    
+    if input.KeyCode == Enum.KeyCode.One then
+        toggleAim()
+    elseif input.KeyCode == Enum.KeyCode.Two then
+        switchAimPart()
+    elseif input.KeyCode == Enum.KeyCode.Three then
+        toggleXRay()
+    end
+end)
+
+-- ============================================================
+--  X-RAY ОБНОВЛЕНИЕ (ОТДЕЛЬНЫЙ ПОТОК)
+-- =================================
