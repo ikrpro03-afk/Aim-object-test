@@ -1,4 +1,4 @@
--- AIM LOCK v31.1 | FINAL
+-- AIM LOCK v31.2 | FIXED
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -24,7 +24,7 @@ local CONFIG = {
     ShowFOV = true,
     CrosshairStyle = "DOT",
     XRayColor = Color3.fromRGB(0, 180, 255),
-    CenterOffset = Vector2.new(0, 0), -- Ручная корректировка, если нужно
+    CenterOffset = Vector2.new(0, 0), -- Ручная корректировка (если нужно)
 }
 
 local DIST_LIMIT_SQ = CONFIG.DistanceLimit * CONFIG.DistanceLimit
@@ -62,7 +62,7 @@ local XRayState = {
 }
 
 -- ============================================================
---  GUI (MODERN, ЯРЧЕ)
+--  GUI (MODERN, БЕЗ ИЗМЕНЕНИЙ)
 -- ============================================================
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
@@ -82,12 +82,11 @@ local function buildGUI()
     gui.Parent = PlayerGui
     gui.DisplayOrder = 999
 
-    -- ОСНОВНОЕ ОКНО (сделал менее прозрачным)
     local main = Instance.new("Frame")
     main.Size = UDim2.new(0, 260, 0, 320)
     main.Position = UDim2.new(0, 16, 0, 16)
     main.BackgroundColor3 = Color3.fromRGB(8, 12, 28)
-    main.BackgroundTransparency = 0.06 -- Ярче
+    main.BackgroundTransparency = 0.06
     main.BorderSizePixel = 0
     main.ClipsDescendants = true
     main.Parent = gui
@@ -102,7 +101,6 @@ local function buildGUI()
     )
     bgGrad.Parent = main
 
-    -- ===== ВЕРХНЯЯ ПАНЕЛЬ =====
     local header = Instance.new("Frame")
     header.Size = UDim2.new(1, 0, 0, 32)
     header.BackgroundColor3 = Color3.fromRGB(16, 22, 46)
@@ -125,7 +123,6 @@ local function buildGUI()
     title.Font = Enum.Font.GothamMedium
     title.Parent = header
 
-    -- Кнопки окна
     local winButtons = {}
     for i, data in ipairs({
         {text = "─", pos = 1, color = Color3.fromRGB(180, 215, 255), action = "minimize"},
@@ -144,7 +141,6 @@ local function buildGUI()
         winButtons[data.action] = btn
     end
 
-    -- РАЗДЕЛИТЕЛЬ
     local divider = Instance.new("Frame")
     divider.Size = UDim2.new(1, -24, 0, 1)
     divider.Position = UDim2.new(0, 12, 0, 32)
@@ -153,7 +149,6 @@ local function buildGUI()
     divider.BorderSizePixel = 0
     divider.Parent = main
 
-    -- ===== СТАТУСЫ =====
     local status = Instance.new("TextLabel")
     status.Size = UDim2.new(1, -24, 0, 20)
     status.Position = UDim2.new(0, 12, 0, 40)
@@ -198,7 +193,6 @@ local function buildGUI()
     killsLabel.Font = Enum.Font.Gotham
     killsLabel.Parent = main
 
-    -- ===== КНОПКИ =====
     local function createModernButton(text, y, gradColor1, gradColor2, textColor)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1, -24, 0, 32)
@@ -225,7 +219,6 @@ local function buildGUI()
         stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         stroke.Parent = btn
 
-        -- Анимация
         local tweenHover = TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.1,
             TextColor3 = Color3.fromRGB(255, 255, 255),
@@ -272,7 +265,6 @@ local function buildGUI()
         Color3.fromRGB(255, 150, 150)
     )
 
-    -- ===== FOV КРУГ =====
     local fovCircle = Instance.new("ImageLabel")
     fovCircle.Size = UDim2.new(0, CONFIG.FOV * 2, 0, CONFIG.FOV * 2)
     fovCircle.Position = UDim2.new(0.5, -CONFIG.FOV, 0.5, -CONFIG.FOV)
@@ -283,7 +275,6 @@ local function buildGUI()
     fovCircle.Visible = false
     fovCircle.Parent = gui
 
-    -- ===== ПРИЦЕЛ (ЧЕРЕЗ ПИКСЕЛИ + GuiInset) =====
     local crosshair = Instance.new("Frame")
     crosshair.Size = UDim2.new(0, 0, 0, 0)
     crosshair.BackgroundTransparency = 1
@@ -292,9 +283,8 @@ local function buildGUI()
 
     local function updateCrosshairPosition()
         local vp = Camera.ViewportSize
-        local inset = GuiService:GetGuiInset()
         local centerX = vp.X / 2 + CONFIG.CenterOffset.X
-        local centerY = (vp.Y + inset.Y) / 2 + CONFIG.CenterOffset.Y
+        local centerY = vp.Y / 2 + CONFIG.CenterOffset.Y
         crosshair.Position = UDim2.fromOffset(centerX, centerY)
     end
 
@@ -331,10 +321,6 @@ local function buildGUI()
     if CONFIG.CrosshairStyle == "DOT" then createDot() else createCross() end
     updateCrosshairPosition()
 
-    -- Обновляем при изменении размера экрана или GuiInset
-    UserInputService.WindowFocused:Connect(updateCrosshairPosition)
-    GuiService:GetPropertyChangedSignal("GuiInset"):Connect(updateCrosshairPosition)
-
     return {
         gui = gui,
         main = main,
@@ -363,6 +349,18 @@ end
 local GUI = buildGUI()
 
 -- ============================================================
+--  ОБНОВЛЕНИЕ ПРИ СМЕНЕ РАЗМЕРА ЭКРАНА
+-- ============================================================
+local function onScreenSizeChanged()
+    if GUI and GUI.updateCrosshair then
+        GUI.updateCrosshair()
+    end
+end
+
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(onScreenSizeChanged)
+UserInputService.WindowFocused:Connect(onScreenSizeChanged)
+
+-- ============================================================
 --  ОБНОВЛЕНИЕ RAYCAST ФИЛЬТРА
 -- ============================================================
 local raycastParams = RaycastParams.new()
@@ -377,14 +375,13 @@ updateRaycastFilter(Player.Character)
 Player.CharacterAdded:Connect(updateRaycastFilter)
 
 -- ============================================================
---  ЦЕНТР ЭКРАНА (С GuiInset)
+--  ЦЕНТР ЭКРАНА (БЕЗ GuiInset)
 -- ============================================================
 local function getCenter()
     local vp = Camera.ViewportSize
-    local inset = GuiService:GetGuiInset()
     return Vector2.new(
         vp.X / 2 + CONFIG.CenterOffset.X,
-        (vp.Y + inset.Y) / 2 + CONFIG.CenterOffset.Y
+        vp.Y / 2 + CONFIG.CenterOffset.Y
     )
 end
 
@@ -450,7 +447,7 @@ local function isVisible(plr)
 end
 
 -- ============================================================
---  X-RAY
+--  X-RAY (сокращён, без изменений)
 -- ============================================================
 local XRAY_PARTS = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftFoot", "RightFoot", "LeftHand", "RightHand"}
 
@@ -1055,7 +1052,6 @@ connect(GUI.winButtons.maximize, "MouseButton1Click", function()
     end
 end)
 
--- Клавиатура
 local keyConn = UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if State.destroyed then return end
@@ -1070,7 +1066,6 @@ local keyConn = UserInputService.InputBegan:Connect(function(input, processed)
 end)
 table.insert(connections, keyConn)
 
--- Обработка выхода игрока
 Players.PlayerRemoving:Connect(function(plr)
     removeBox(plr)
     clearPartsCache(plr)
@@ -1138,19 +1133,6 @@ end)
 table.insert(connections, renderConn)
 
 -- ============================================================
---  ДОП. ОБНОВЛЕНИЕ ПРИЦЕЛА ПРИ СМЕНЕ РАЗМЕРА
--- ============================================================
-local function onScreenSizeChanged()
-    if GUI and GUI.updateCrosshair then
-        GUI.updateCrosshair()
-    end
-end
-
--- Отслеживаем изменение размера экрана
-UserInputService.WindowFocused:Connect(onScreenSizeChanged)
-UserInputService.WindowSizeChanged:Connect(onScreenSizeChanged)
-
--- ============================================================
 --  СТАРТ
 -- ============================================================
 game:GetService("StarterGui"):SetCore("SendNotification", {
@@ -1159,7 +1141,7 @@ game:GetService("StarterGui"):SetCore("SendNotification", {
     Duration = 4
 })
 
-print("✅ AIM LOCK v31.1 LOADED")
+print("✅ AIM LOCK v31.2 LOADED")
 print("📌 1 - Toggle ON/OFF")
 print("📌 2 - Switch aim (HEAD ↔ BODY)")
 print("📌 3 - Toggle X-RAY")
