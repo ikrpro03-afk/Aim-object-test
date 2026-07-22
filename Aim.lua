@@ -1,4 +1,4 @@
--- AIM LOCK v31.2 | FIXED
+-- AIM LOCK v32.0 | ULTIMATE
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -23,7 +23,6 @@ local CONFIG = {
     XRayUpdateInterval = 0.04,
     ShowFOV = true,
     CrosshairStyle = "DOT",
-    XRayColor = Color3.fromRGB(0, 180, 255),
     CenterOffset = Vector2.new(0, 0), -- Ручная корректировка (если нужно)
 }
 
@@ -45,6 +44,7 @@ local State = {
     maximized = false,
     searchTimer = 0,
     xrayTimer = 0,
+    hue = 0, -- Для RGB X-Ray
     lastStatus = "",
     lastTarget = "",
 }
@@ -62,7 +62,7 @@ local XRayState = {
 }
 
 -- ============================================================
---  GUI (MODERN, БЕЗ ИЗМЕНЕНИЙ)
+--  GUI (MODERN, ЯРКИЙ)
 -- ============================================================
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
@@ -82,47 +82,65 @@ local function buildGUI()
     gui.Parent = PlayerGui
     gui.DisplayOrder = 999
 
+    -- ОСНОВНОЕ ОКНО (компактное)
     local main = Instance.new("Frame")
-    main.Size = UDim2.new(0, 260, 0, 320)
+    main.Size = UDim2.new(0, 220, 0, 280)
     main.Position = UDim2.new(0, 16, 0, 16)
-    main.BackgroundColor3 = Color3.fromRGB(8, 12, 28)
-    main.BackgroundTransparency = 0.06
+    main.BackgroundColor3 = Color3.fromRGB(6, 10, 24)
+    main.BackgroundTransparency = 0.05
     main.BorderSizePixel = 0
     main.ClipsDescendants = true
     main.Parent = gui
 
     local mainCorner = Instance.new("UICorner")
-    mainCorner.CornerRadius = UDim.new(0, 12)
+    mainCorner.CornerRadius = UDim.new(0, 16)
     mainCorner.Parent = main
 
+    -- ГРАДИЕНТ ФОНА (насыщенный тёмно-синий)
     local bgGrad = createGradient(
-        Color3.fromRGB(14, 20, 44),
-        Color3.fromRGB(8, 12, 30)
+        Color3.fromRGB(10, 16, 44),
+        Color3.fromRGB(4, 8, 28)
     )
     bgGrad.Parent = main
 
+    -- СВЕЧЕНИЕ ПО КРАЯМ
+    local glowBorder = Instance.new("Frame")
+    glowBorder.Size = UDim2.new(1, 0, 1, 0)
+    glowBorder.Position = UDim2.new(0, 0, 0, 0)
+    glowBorder.BackgroundTransparency = 1
+    glowBorder.BorderSizePixel = 2
+    glowBorder.BorderColor3 = Color3.fromRGB(60, 120, 255)
+    glowBorder.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    glowBorder.BackgroundTransparency = 1
+    glowBorder.Parent = main
+    local glowCorner = Instance.new("UICorner")
+    glowCorner.CornerRadius = UDim.new(0, 16)
+    glowCorner.Parent = glowBorder
+
+    -- ===== ВЕРХНЯЯ ПАНЕЛЬ =====
     local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 32)
-    header.BackgroundColor3 = Color3.fromRGB(16, 22, 46)
-    header.BackgroundTransparency = 0.2
+    header.Size = UDim2.new(1, 0, 0, 30)
+    header.BackgroundColor3 = Color3.fromRGB(14, 20, 46)
+    header.BackgroundTransparency = 0.1
     header.BorderSizePixel = 0
     header.Parent = main
 
     local headerCorner = Instance.new("UICorner")
-    headerCorner.CornerRadius = UDim.new(0, 12)
+    headerCorner.CornerRadius = UDim.new(0, 16)
     headerCorner.Parent = header
 
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -90, 1, 0)
-    title.Position = UDim2.new(0, 14, 0, 0)
+    title.Size = UDim2.new(1, -80, 1, 0)
+    title.Position = UDim2.new(0, 12, 0, 0)
     title.BackgroundTransparency = 1
-    title.Text = "AIM LOCK v31"
+    title.Text = "AIM LOCK"
     title.TextColor3 = Color3.fromRGB(180, 215, 255)
-    title.TextSize = 14
+    title.TextSize = 13
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Font = Enum.Font.GothamMedium
     title.Parent = header
 
+    -- Кнопки окна
     local winButtons = {}
     for i, data in ipairs({
         {text = "─", pos = 1, color = Color3.fromRGB(180, 215, 255), action = "minimize"},
@@ -130,78 +148,81 @@ local function buildGUI()
         {text = "✕", pos = 3, color = Color3.fromRGB(255, 80, 80), action = "close"},
     }) do
         local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0, 28, 1, 0)
-        btn.Position = UDim2.new(1, -28 * (4 - data.pos), 0, 0)
+        btn.Size = UDim2.new(0, 24, 1, 0)
+        btn.Position = UDim2.new(1, -24 * (4 - data.pos), 0, 0)
         btn.BackgroundTransparency = 1
         btn.Text = data.text
         btn.TextColor3 = data.color
-        btn.TextSize = 16
+        btn.TextSize = 14
         btn.Font = Enum.Font.Gotham
         btn.Parent = header
         winButtons[data.action] = btn
     end
 
+    -- РАЗДЕЛИТЕЛЬ
     local divider = Instance.new("Frame")
-    divider.Size = UDim2.new(1, -24, 0, 1)
-    divider.Position = UDim2.new(0, 12, 0, 32)
-    divider.BackgroundColor3 = Color3.fromRGB(50, 80, 140)
-    divider.BackgroundTransparency = 0.4
+    divider.Size = UDim2.new(1, -20, 0, 1)
+    divider.Position = UDim2.new(0, 10, 0, 30)
+    divider.BackgroundColor3 = Color3.fromRGB(50, 80, 160)
+    divider.BackgroundTransparency = 0.3
     divider.BorderSizePixel = 0
     divider.Parent = main
 
+    -- ===== СТАТУСЫ (более яркие) =====
     local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -24, 0, 20)
-    status.Position = UDim2.new(0, 12, 0, 40)
+    status.Size = UDim2.new(1, -20, 0, 18)
+    status.Position = UDim2.new(0, 10, 0, 36)
     status.BackgroundTransparency = 1
     status.Text = "DISABLED"
-    status.TextColor3 = Color3.fromRGB(120, 170, 220)
-    status.TextSize = 11
+    status.TextColor3 = Color3.fromRGB(130, 180, 230)
+    status.TextSize = 10
     status.TextXAlignment = Enum.TextXAlignment.Left
     status.Font = Enum.Font.Gotham
     status.Parent = main
 
     local targetLabel = Instance.new("TextLabel")
-    targetLabel.Size = UDim2.new(1, -24, 0, 20)
-    targetLabel.Position = UDim2.new(0, 12, 0, 60)
+    targetLabel.Size = UDim2.new(1, -20, 0, 18)
+    targetLabel.Position = UDim2.new(0, 10, 0, 54)
     targetLabel.BackgroundTransparency = 1
     targetLabel.Text = "TARGET: NONE"
-    targetLabel.TextColor3 = Color3.fromRGB(150, 180, 210)
-    targetLabel.TextSize = 11
+    targetLabel.TextColor3 = Color3.fromRGB(160, 190, 220)
+    targetLabel.TextSize = 10
     targetLabel.TextXAlignment = Enum.TextXAlignment.Left
     targetLabel.Font = Enum.Font.Gotham
     targetLabel.Parent = main
 
     local aimLabel = Instance.new("TextLabel")
-    aimLabel.Size = UDim2.new(1, -24, 0, 20)
-    aimLabel.Position = UDim2.new(0, 12, 0, 80)
+    aimLabel.Size = UDim2.new(1, -20, 0, 18)
+    aimLabel.Position = UDim2.new(0, 10, 0, 72)
     aimLabel.BackgroundTransparency = 1
     aimLabel.Text = "AIM: HEAD"
     aimLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
-    aimLabel.TextSize = 11
+    aimLabel.TextSize = 10
     aimLabel.TextXAlignment = Enum.TextXAlignment.Left
     aimLabel.Font = Enum.Font.Gotham
     aimLabel.Parent = main
 
     local killsLabel = Instance.new("TextLabel")
-    killsLabel.Size = UDim2.new(1, -24, 0, 20)
-    killsLabel.Position = UDim2.new(0, 12, 0, 100)
+    killsLabel.Size = UDim2.new(1, -20, 0, 18)
+    killsLabel.Position = UDim2.new(0, 10, 0, 90)
     killsLabel.BackgroundTransparency = 1
     killsLabel.Text = "KILLS: 0"
-    killsLabel.TextColor3 = Color3.fromRGB(220, 200, 120)
-    killsLabel.TextSize = 11
+    killsLabel.TextColor3 = Color3.fromRGB(230, 210, 130)
+    killsLabel.TextSize = 10
     killsLabel.TextXAlignment = Enum.TextXAlignment.Left
     killsLabel.Font = Enum.Font.Gotham
     killsLabel.Parent = main
 
+    -- ===== КНОПКИ (С ГРАДИЕНТАМИ И АНИМАЦИЕЙ) =====
     local function createModernButton(text, y, gradColor1, gradColor2, textColor)
         local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -24, 0, 32)
-        btn.Position = UDim2.new(0, 12, 0, y)
+        btn.Size = UDim2.new(1, -20, 0, 28)
+        btn.Position = UDim2.new(0, 10, 0, y)
         btn.BackgroundColor3 = Color3.fromRGB(20, 40, 70)
         btn.BorderSizePixel = 0
         btn.Text = text
         btn.TextColor3 = textColor or Color3.fromRGB(200, 215, 240)
-        btn.TextSize = 12
+        btn.TextSize = 11
         btn.Font = Enum.Font.GothamMedium
         btn.Parent = main
 
@@ -212,20 +233,30 @@ local function buildGUI()
         local grad = createGradient(gradColor1, gradColor2)
         grad.Parent = btn
 
+        -- Свечение (UIStroke)
         local stroke = Instance.new("UIStroke")
         stroke.Color = Color3.fromRGB(60, 120, 255)
         stroke.Thickness = 1
-        stroke.Transparency = 0.8
+        stroke.Transparency = 0.6
         stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         stroke.Parent = btn
 
-        local tweenHover = TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        -- Анимация наведения
+        local tweenHover = TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.1,
             TextColor3 = Color3.fromRGB(255, 255, 255),
         })
-        local tweenLeave = TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        local tweenLeave = TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0,
             TextColor3 = textColor or Color3.fromRGB(200, 215, 240),
+        })
+
+        -- Анимация нажатия (уменьшение и возврат)
+        local tweenPress = TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -22, 0, 26),
+        })
+        local tweenRelease = TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -20, 0, 28),
         })
 
         btn.MouseEnter:Connect(function()
@@ -236,35 +267,44 @@ local function buildGUI()
             tweenHover:Cancel()
             tweenLeave:Play()
         end)
+        btn.MouseButton1Down:Connect(function()
+            tweenRelease:Cancel()
+            tweenPress:Play()
+        end)
+        btn.MouseButton1Up:Connect(function()
+            tweenPress:Cancel()
+            tweenRelease:Play()
+        end)
 
         return btn, stroke, grad
     end
 
     local btnToggle, strokeToggle, gradToggle = createModernButton(
-        "ACTIVATE", 118,
-        Color3.fromRGB(0, 60, 150),
-        Color3.fromRGB(0, 30, 90),
+        "ACTIVATE", 108,
+        Color3.fromRGB(0, 60, 160),
+        Color3.fromRGB(0, 30, 100),
         Color3.fromRGB(200, 215, 240)
     )
     local btnAimPart, strokeAim, gradAim = createModernButton(
-        "SWITCH TO BODY", 158,
-        Color3.fromRGB(0, 80, 120),
-        Color3.fromRGB(0, 40, 70),
+        "SWITCH TO BODY", 142,
+        Color3.fromRGB(0, 80, 130),
+        Color3.fromRGB(0, 40, 80),
         Color3.fromRGB(200, 215, 240)
     )
     local btnXRay, strokeXRay, gradXRay = createModernButton(
-        "X-RAY: ON", 198,
-        Color3.fromRGB(0, 90, 100),
-        Color3.fromRGB(0, 50, 60),
+        "X-RAY: ON", 176,
+        Color3.fromRGB(0, 90, 110),
+        Color3.fromRGB(0, 50, 70),
         Color3.fromRGB(200, 215, 240)
     )
     local btnExit, strokeExit, gradExit = createModernButton(
-        "EXIT SCRIPT", 238,
+        "EXIT", 210,
         Color3.fromRGB(120, 20, 30),
         Color3.fromRGB(80, 10, 20),
         Color3.fromRGB(255, 150, 150)
     )
 
+    -- ===== FOV КРУГ =====
     local fovCircle = Instance.new("ImageLabel")
     fovCircle.Size = UDim2.new(0, CONFIG.FOV * 2, 0, CONFIG.FOV * 2)
     fovCircle.Position = UDim2.new(0.5, -CONFIG.FOV, 0.5, -CONFIG.FOV)
@@ -275,6 +315,7 @@ local function buildGUI()
     fovCircle.Visible = false
     fovCircle.Parent = gui
 
+    -- ===== ПРИЦЕЛ (ПО ЦЕНТРУ БЕЗ GuiInset) =====
     local crosshair = Instance.new("Frame")
     crosshair.Size = UDim2.new(0, 0, 0, 0)
     crosshair.BackgroundTransparency = 1
@@ -283,9 +324,10 @@ local function buildGUI()
 
     local function updateCrosshairPosition()
         local vp = Camera.ViewportSize
-        local centerX = vp.X / 2 + CONFIG.CenterOffset.X
-        local centerY = vp.Y / 2 + CONFIG.CenterOffset.Y
-        crosshair.Position = UDim2.fromOffset(centerX, centerY)
+        crosshair.Position = UDim2.fromOffset(
+            vp.X / 2 + CONFIG.CenterOffset.X,
+            vp.Y / 2 + CONFIG.CenterOffset.Y
+        )
     end
 
     local function createDot()
@@ -349,30 +391,15 @@ end
 local GUI = buildGUI()
 
 -- ============================================================
---  ОБНОВЛЕНИЕ ПРИ СМЕНЕ РАЗМЕРА ЭКРАНА
+--  ОБНОВЛЕНИЕ ПРИЦЕЛА ПРИ СМЕНЕ РАЗМЕРА
 -- ============================================================
 local function onScreenSizeChanged()
     if GUI and GUI.updateCrosshair then
         GUI.updateCrosshair()
     end
 end
-
 Camera:GetPropertyChangedSignal("ViewportSize"):Connect(onScreenSizeChanged)
 UserInputService.WindowFocused:Connect(onScreenSizeChanged)
-
--- ============================================================
---  ОБНОВЛЕНИЕ RAYCAST ФИЛЬТРА
--- ============================================================
-local raycastParams = RaycastParams.new()
-raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-
-local function updateRaycastFilter(char)
-    if char then
-        raycastParams.FilterDescendantsInstances = {char}
-    end
-end
-updateRaycastFilter(Player.Character)
-Player.CharacterAdded:Connect(updateRaycastFilter)
 
 -- ============================================================
 --  ЦЕНТР ЭКРАНА (БЕЗ GuiInset)
@@ -384,6 +411,20 @@ local function getCenter()
         vp.Y / 2 + CONFIG.CenterOffset.Y
     )
 end
+
+-- ============================================================
+--  RAYCAST
+-- ============================================================
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+local function updateRaycastFilter(char)
+    if char then
+        raycastParams.FilterDescendantsInstances = {char}
+    end
+end
+updateRaycastFilter(Player.Character)
+Player.CharacterAdded:Connect(updateRaycastFilter)
 
 -- ============================================================
 --  УТИЛИТЫ
@@ -447,7 +488,7 @@ local function isVisible(plr)
 end
 
 -- ============================================================
---  X-RAY (сокращён, без изменений)
+--  X-RAY С RGB-ЭФФЕКТОМ
 -- ============================================================
 local XRAY_PARTS = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftFoot", "RightFoot", "LeftHand", "RightHand"}
 
@@ -519,7 +560,7 @@ local function createBox(plr)
     local border = Instance.new("Frame")
     border.Size = UDim2.new(1, 0, 1, 0)
     border.BackgroundTransparency = 0.85
-    border.BackgroundColor3 = CONFIG.XRayColor
+    border.BackgroundColor3 = Color3.fromRGB(0, 180, 255) -- временный цвет, будет меняться
     border.BorderSizePixel = 0
     border.Parent = container
     local corner = Instance.new("UICorner")
@@ -532,7 +573,7 @@ local function createBox(plr)
     outline.Size = UDim2.new(1, -2, 1, -2)
     outline.BackgroundTransparency = 1
     outline.BorderSizePixel = 1
-    outline.BorderColor3 = CONFIG.XRayColor
+    outline.BorderColor3 = Color3.fromRGB(0, 180, 255) -- временный цвет
     outline.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     outline.BackgroundTransparency = 0.7
     outline.Parent = container
@@ -545,7 +586,7 @@ local function createBox(plr)
     nameLabel.Position = UDim2.new(0, 0, 1, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = plr.Name
-    nameLabel.TextColor3 = CONFIG.XRayColor
+    nameLabel.TextColor3 = Color3.fromRGB(0, 180, 255) -- временный цвет
     nameLabel.TextSize = 10
     nameLabel.Font = Enum.Font.Gotham
     nameLabel.TextStrokeTransparency = 0.3
@@ -560,7 +601,7 @@ local function createBox(plr)
     }
 end
 
-local function updateBox(plr)
+local function updateBox(plr, hue)
     local data = XRayState.boxes[plr]
     if not data then return end
     if not data.container or not data.container.Parent then
@@ -572,6 +613,20 @@ local function updateBox(plr)
         return
     end
     if not Camera then return end
+    
+    -- RGB-цвет
+    local color = Color3.fromHSV(hue, 1, 1)
+    
+    -- Обновляем цвета всех элементов
+    if data.border then
+        data.border.BackgroundColor3 = color
+    end
+    if data.outline then
+        data.outline.BorderColor3 = color
+    end
+    if data.name then
+        data.name.TextColor3 = color
+    end
     
     local parts = getCharacterParts(plr)
     if #parts == 0 then
@@ -622,8 +677,20 @@ local function updateXRay(dt)
         return
     end
     
+    -- Обновляем hue для RGB-эффекта
+    State.hue = (State.hue + dt * 0.15) % 1
+    
     State.xrayTimer = State.xrayTimer + dt
     if State.xrayTimer < CONFIG.XRayUpdateInterval then
+        -- всё равно обновляем цвета даже если не обновляем позиции
+        for plr, data in pairs(XRayState.boxes) do
+            if data and data.container and data.container.Parent then
+                local color = Color3.fromHSV(State.hue, 1, 1)
+                if data.border then data.border.BackgroundColor3 = color end
+                if data.outline then data.outline.BorderColor3 = color end
+                if data.name then data.name.TextColor3 = color end
+            end
+        end
         return
     end
     State.xrayTimer = 0
@@ -637,7 +704,7 @@ local function updateXRay(dt)
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= Player and plr.Parent and isAlive(plr) then
             createBox(plr)
-            updateBox(plr)
+            updateBox(plr, State.hue)
         end
     end
 end
@@ -887,7 +954,7 @@ local function toggleAim()
             end
             if GUI.strokeToggle then
                 GUI.strokeToggle.Color = Color3.fromRGB(0, 255, 100)
-                GUI.strokeToggle.Transparency = 0.3
+                GUI.strokeToggle.Transparency = 0.2
             end
         end
         
@@ -914,11 +981,11 @@ local function toggleAim()
         
         if GUI.status and GUI.status.Parent then
             GUI.status.Text = "DISABLED"
-            GUI.status.TextColor3 = Color3.fromRGB(120, 170, 220)
+            GUI.status.TextColor3 = Color3.fromRGB(130, 180, 230)
         end
         if GUI.targetLabel and GUI.targetLabel.Parent then
             GUI.targetLabel.Text = "TARGET: NONE"
-            GUI.targetLabel.TextColor3 = Color3.fromRGB(150, 180, 210)
+            GUI.targetLabel.TextColor3 = Color3.fromRGB(160, 190, 220)
         end
         if GUI.killsLabel and GUI.killsLabel.Parent then
             GUI.killsLabel.Text = "KILLS: 0"
@@ -928,13 +995,13 @@ local function toggleAim()
             GUI.btnToggle.Text = "ACTIVATE"
             if GUI.gradToggle then
                 GUI.gradToggle.Color = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 60, 150)),
-                    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 30, 90)),
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 60, 160)),
+                    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 30, 100)),
                 })
             end
             if GUI.strokeToggle then
                 GUI.strokeToggle.Color = Color3.fromRGB(60, 120, 255)
-                GUI.strokeToggle.Transparency = 0.8
+                GUI.strokeToggle.Transparency = 0.6
             end
         end
         
@@ -1023,7 +1090,7 @@ connect(GUI.btnXRay, "MouseButton1Click", toggleXRay)
 connect(GUI.winButtons.minimize, "MouseButton1Click", function()
     State.minimized = not State.minimized
     if State.minimized then
-        GUI.main:TweenSize(UDim2.new(0, 200, 0, 32), "Out", "Quad", 0.3, true)
+        GUI.main:TweenSize(UDim2.new(0, 180, 0, 30), "Out", "Quad", 0.3, true)
         for _, child in ipairs(GUI.main:GetChildren()) do
             if child:IsA("TextLabel") or (child:IsA("TextButton") and child ~= GUI.header) then
                 child.Visible = false
@@ -1031,7 +1098,7 @@ connect(GUI.winButtons.minimize, "MouseButton1Click", function()
         end
         GUI.winButtons.minimize.Text = "□"
     else
-        GUI.main:TweenSize(UDim2.new(0, 260, 0, 320), "Out", "Quad", 0.3, true)
+        GUI.main:TweenSize(UDim2.new(0, 220, 0, 280), "Out", "Quad", 0.3, true)
         for _, child in ipairs(GUI.main:GetChildren()) do
             if child:IsA("TextLabel") or child:IsA("TextButton") then
                 child.Visible = true
@@ -1044,10 +1111,10 @@ end)
 connect(GUI.winButtons.maximize, "MouseButton1Click", function()
     State.maximized = not State.maximized
     if State.maximized then
-        GUI.main:TweenSize(UDim2.new(0, 380, 0, 440), "Out", "Quad", 0.3, true)
-        GUI.main:TweenPosition(UDim2.new(0.5, -190, 0.5, -220), "Out", "Quad", 0.3, true)
+        GUI.main:TweenSize(UDim2.new(0, 320, 0, 360), "Out", "Quad", 0.3, true)
+        GUI.main:TweenPosition(UDim2.new(0.5, -160, 0.5, -180), "Out", "Quad", 0.3, true)
     else
-        GUI.main:TweenSize(UDim2.new(0, 260, 0, 320), "Out", "Quad", 0.3, true)
+        GUI.main:TweenSize(UDim2.new(0, 220, 0, 280), "Out", "Quad", 0.3, true)
         GUI.main:TweenPosition(UDim2.new(0, 16, 0, 16), "Out", "Quad", 0.3, true)
     end
 end)
@@ -1136,12 +1203,12 @@ table.insert(connections, renderConn)
 --  СТАРТ
 -- ============================================================
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AIM LOCK v31",
+    Title = "AIM LOCK v32",
     Text = "1 - Toggle | 2 - Head/Body | 3 - X-Ray",
     Duration = 4
 })
 
-print("✅ AIM LOCK v31.2 LOADED")
+print("✅ AIM LOCK v32.0 LOADED")
 print("📌 1 - Toggle ON/OFF")
 print("📌 2 - Switch aim (HEAD ↔ BODY)")
 print("📌 3 - Toggle X-RAY")
