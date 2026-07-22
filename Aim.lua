@@ -1,4 +1,4 @@
--- AIM LOCK v35.0 | PERFECT CENTER + ULTRA BRIGHT
+-- AIM LOCK v35.1 | FULLY FIXED
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -22,7 +22,7 @@ local CONFIG = {
     XRayUpdateInterval = 0.025,
     ShowFOV = true,
     CrosshairStyle = "DOT",
-    CenterOffset = Vector2.new(0, 0), -- Ручная корректировка (если всё ещё нужно)
+    CenterOffset = Vector2.new(0, 0),
 }
 
 local DIST_LIMIT_SQ = CONFIG.DistanceLimit * CONFIG.DistanceLimit
@@ -49,7 +49,7 @@ local State = {
 }
 
 -- ============================================================
---  X-RAY
+--  X-RAY СОСТОЯНИЕ
 -- ============================================================
 local XRayState = {
     enabled = true,
@@ -59,6 +59,17 @@ local XRayState = {
     cacheTimers = {},
     CACHE_DURATION = 0.5,
 }
+
+-- ============================================================
+--  ЦЕНТР ЭКРАНА (ОПРЕДЕЛЯЕТСЯ ДО GUI)
+-- ============================================================
+local function getCenter()
+    local vp = Camera.ViewportSize
+    return Vector2.new(
+        vp.X / 2 + CONFIG.CenterOffset.X,
+        vp.Y / 2 + CONFIG.CenterOffset.Y
+    )
+end
 
 -- ============================================================
 --  GUI (ЯРКИЙ, СОВРЕМЕННЫЙ)
@@ -78,11 +89,10 @@ local function buildGUI()
     local gui = Instance.new("ScreenGui")
     gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
     gui.ResetOnSpawn = false
-    gui.IgnoreGuiInset = true  -- Игнорируем системные панели
+    gui.IgnoreGuiInset = true
     gui.Parent = PlayerGui
     gui.DisplayOrder = 999
 
-    -- ОСНОВНОЕ ОКНО (очень яркое, насыщенное)
     local main = Instance.new("Frame")
     main.Size = UDim2.new(0, 220, 0, 280)
     main.Position = UDim2.new(0, 16, 0, 16)
@@ -96,14 +106,12 @@ local function buildGUI()
     mainCorner.CornerRadius = UDim.new(0, 16)
     mainCorner.Parent = main
 
-    -- ЯРКИЙ ГРАДИЕНТ ФОНА
     local bgGrad = createGradient(
         Color3.fromRGB(30, 60, 160),
         Color3.fromRGB(10, 20, 80)
     )
     bgGrad.Parent = main
 
-    -- ЯРКОЕ СВЕЧЕНИЕ ПО КРАЯМ
     local glowBorder = Instance.new("Frame")
     glowBorder.Size = UDim2.new(1, 0, 1, 0)
     glowBorder.Position = UDim2.new(0, 0, 0, 0)
@@ -117,7 +125,6 @@ local function buildGUI()
     glowCorner.CornerRadius = UDim.new(0, 16)
     glowCorner.Parent = glowBorder
 
-    -- ВНУТРЕННЕЕ СВЕЧЕНИЕ (UIStroke)
     local innerGlow = Instance.new("UIStroke")
     innerGlow.Color = Color3.fromRGB(100, 200, 255)
     innerGlow.Thickness = 2
@@ -125,7 +132,6 @@ local function buildGUI()
     innerGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     innerGlow.Parent = main
 
-    -- ===== ВЕРХНЯЯ ПАНЕЛЬ =====
     local header = Instance.new("Frame")
     header.Size = UDim2.new(1, 0, 0, 30)
     header.BackgroundColor3 = Color3.fromRGB(20, 40, 100)
@@ -148,7 +154,6 @@ local function buildGUI()
     title.Font = Enum.Font.GothamMedium
     title.Parent = header
 
-    -- Кнопки окна
     local winButtons = {}
     for i, data in ipairs({
         {text = "─", pos = 1, color = Color3.fromRGB(255, 255, 255), action = "minimize"},
@@ -167,7 +172,6 @@ local function buildGUI()
         winButtons[data.action] = btn
     end
 
-    -- РАЗДЕЛИТЕЛЬ
     local divider = Instance.new("Frame")
     divider.Size = UDim2.new(1, -20, 0, 1)
     divider.Position = UDim2.new(0, 10, 0, 30)
@@ -176,7 +180,6 @@ local function buildGUI()
     divider.BorderSizePixel = 0
     divider.Parent = main
 
-    -- ===== СТАТУСЫ (БЕЛЫЙ ТЕКСТ) =====
     local status = Instance.new("TextLabel")
     status.Size = UDim2.new(1, -20, 0, 18)
     status.Position = UDim2.new(0, 10, 0, 36)
@@ -221,7 +224,6 @@ local function buildGUI()
     killsLabel.Font = Enum.Font.Gotham
     killsLabel.Parent = main
 
-    -- ===== КНОПКИ (ЯРКИЕ, С БЕЛЫМ ТЕКСТОМ) =====
     local function createModernButton(text, y, gradColor1, gradColor2)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(1, -20, 0, 28)
@@ -241,7 +243,6 @@ local function buildGUI()
         local grad = createGradient(gradColor1, gradColor2)
         grad.Parent = btn
 
-        -- Яркое свечение
         local stroke = Instance.new("UIStroke")
         stroke.Color = Color3.fromRGB(120, 200, 255)
         stroke.Thickness = 2
@@ -249,7 +250,6 @@ local function buildGUI()
         stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         stroke.Parent = btn
 
-        -- Анимация наведения
         local tweenHover = TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.1,
         })
@@ -257,7 +257,6 @@ local function buildGUI()
             BackgroundTransparency = 0,
         })
 
-        -- Анимация нажатия
         local tweenPress = TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Size = UDim2.new(1, -22, 0, 26),
         })
@@ -306,7 +305,6 @@ local function buildGUI()
         Color3.fromRGB(140, 20, 30)
     )
 
-    -- ===== FOV КРУГ =====
     local fovCircle = Instance.new("ImageLabel")
     fovCircle.Size = UDim2.new(0, CONFIG.FOV * 2, 0, CONFIG.FOV * 2)
     fovCircle.Position = UDim2.new(0.5, -CONFIG.FOV, 0.5, -CONFIG.FOV)
@@ -317,7 +315,6 @@ local function buildGUI()
     fovCircle.Visible = false
     fovCircle.Parent = gui
 
-    -- ===== ПРИЦЕЛ (ПО ЦЕНТРУ) =====
     local crosshair = Instance.new("Frame")
     crosshair.Size = UDim2.new(0, 0, 0, 0)
     crosshair.BackgroundTransparency = 1
@@ -387,6 +384,9 @@ local function buildGUI()
     }
 end
 
+-- ============================================================
+--  СОЗДАНИЕ GUI (ПОСЛЕ ОПРЕДЕЛЕНИЯ getCenter)
+-- ============================================================
 local GUI = buildGUI()
 
 -- ============================================================
@@ -399,17 +399,6 @@ local function onScreenSizeChanged()
 end
 Camera:GetPropertyChangedSignal("ViewportSize"):Connect(onScreenSizeChanged)
 UserInputService.WindowFocused:Connect(onScreenSizeChanged)
-
--- ============================================================
---  ЦЕНТР ЭКРАНА (БЕЗ GuiInset)
--- ============================================================
-local function getCenter()
-    local vp = Camera.ViewportSize
-    return Vector2.new(
-        vp.X / 2 + CONFIG.CenterOffset.X,
-        vp.Y / 2 + CONFIG.CenterOffset.Y
-    )
-end
 
 -- ============================================================
 --  RAYCAST
@@ -556,10 +545,9 @@ local function createBox(plr)
     container.BackgroundTransparency = 1
     container.Parent = XRayState.container
     
-    -- Основная рамка (толстая)
     local border = Instance.new("Frame")
     border.Size = UDim2.new(1, 0, 1, 0)
-    border.BackgroundTransparency = 0.7  -- заметная заливка
+    border.BackgroundTransparency = 0.7
     border.BackgroundColor3 = Color3.fromHSV(0, 1, 1)
     border.BorderSizePixel = 0
     border.Parent = container
@@ -567,13 +555,12 @@ local function createBox(plr)
     corner.CornerRadius = UDim.new(0, 4)
     corner.Parent = border
     
-    -- Толстый контур
     local outline = Instance.new("Frame")
     outline.Size = UDim2.new(1, 0, 1, 0)
     outline.Position = UDim2.new(0, 1, 0, 1)
     outline.Size = UDim2.new(1, -2, 1, -2)
     outline.BackgroundTransparency = 1
-    outline.BorderSizePixel = 2  -- Толщина контура
+    outline.BorderSizePixel = 2
     outline.BorderColor3 = Color3.fromHSV(0, 1, 1)
     outline.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     outline.BackgroundTransparency = 0.7
@@ -582,7 +569,6 @@ local function createBox(plr)
     outlineCorner.CornerRadius = UDim.new(0, 3)
     outlineCorner.Parent = outline
     
-    -- Имя игрока (яркое)
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Size = UDim2.new(1, 0, 0, 16)
     nameLabel.Position = UDim2.new(0, 0, 1, 0)
@@ -679,7 +665,6 @@ local function updateXRay(dt)
         State.xrayTimer = 0
     end
     
-    -- Обновляем цвета всех существующих боксов
     for plr, data in pairs(XRayState.boxes) do
         if data and data.container and data.container.Parent then
             local color = Color3.fromHSV(State.hue, 1, 1)
@@ -1206,7 +1191,7 @@ game:GetService("StarterGui"):SetCore("SendNotification", {
     Duration = 4
 })
 
-print("✅ AIM LOCK v35.0 LOADED")
+print("✅ AIM LOCK v35.1 FULLY LOADED")
 print("📌 1 - Toggle ON/OFF")
 print("📌 2 - Switch aim (HEAD ↔ BODY)")
 print("📌 3 - Toggle X-RAY (RGB)")
