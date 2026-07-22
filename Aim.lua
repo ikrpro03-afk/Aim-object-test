@@ -1,8 +1,7 @@
--- AIM LOCK v17.0 | PVP EDITION
+-- AIM LOCK v19.0 | DYNAMIC TARGETING + AUTO-OFF
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local Camera = workspace.CurrentCamera
 local Player = Players.LocalPlayer
 
@@ -11,11 +10,12 @@ local Player = Players.LocalPlayer
 -- ============================================================
 local CONFIG = {
     Speed = 0.92,
-    AimPart = "Head",        -- "Head" или "HumanoidRootPart" (Torso)
-    SearchRadius = 350,      -- Радиус поиска цели (в пикселях)
-    LockThreshold = 4,       -- Точность доведения
-    AutoSwitch = true,       -- Авто-смена цели после убийства
-    SwitchDelay = 0.3,       -- Задержка перед сменой цели
+    AimPart = "Head",           -- "Head" или "HumanoidRootPart"
+    SearchRadius = 350,         -- Радиус поиска (в пикселях)
+    LockThreshold = 4,          -- Точность доведения
+    MinSwitchDist = 30,         -- Минимальная разница для смены (квадрат)
+    AutoOff = true,             -- Выключать аим если нет целей
+    OffDelay = 0.5,             -- Задержка перед выключением
 }
 
 -- ============================================================
@@ -24,16 +24,16 @@ local CONFIG = {
 local state = {
     enabled = false,
     target = nil,
-    lockedTarget = nil,
-    lastTarget = nil,
+    targetDist = math.huge,
+    switchCooldown = 0,
+    killCount = 0,
+    noTargetTimer = 0,
     minimized = false,
     maximized = false,
-    killDetected = false,
-    switchCooldown = 0,
 }
 
 -- ============================================================
--- ================ GUI (БЕЗ ПРИЦЕЛА) =========================
+-- ================ GUI ========================================
 -- ============================================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
@@ -41,9 +41,8 @@ gui.ResetOnSpawn = false
 gui.Parent = Player.PlayerGui
 gui.DisplayOrder = 999
 
--- ===== ОСНОВНОЙ КОНТЕЙНЕР =====
 local container = Instance.new("Frame")
-container.Size = UDim2.new(0, 280, 0, 380)
+container.Size = UDim2.new(0, 280, 0, 360)
 container.Position = UDim2.new(0, 16, 0, 16)
 container.BackgroundColor3 = Color3.fromRGB(12, 16, 28)
 container.BackgroundTransparency = 0.08
@@ -70,7 +69,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.new(0, 14, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "AIM LOCK v17"
+title.Text = "AIM LOCK v19"
 title.TextColor3 = Color3.fromRGB(190, 215, 255)
 title.TextSize = 14
 title.TextXAlignment = Enum.TextXAlignment.Left
@@ -173,29 +172,28 @@ local function createButton(text, y, color, action)
     return btn
 end
 
--- Кнопки (только нужные)
 local btnToggle = createButton("ACTIVATE", 142, Color3.fromRGB(20, 50, 90))
 local btnAimPart = createButton("SWITCH TO BODY", 184, Color3.fromRGB(15, 55, 45))
-local btnExit = createButton("EXIT SCRIPT", 340, Color3.fromRGB(55, 20, 20))
+local btnExit = createButton("EXIT SCRIPT", 320, Color3.fromRGB(55, 20, 20))
 
 -- ============================================================
--- ================ ЛОГИКА ПОИСКА ЦЕЛИ ========================
+-- ================ ЛОГИКА =====================================
 -- ============================================================
 
--- Получение центра экрана
+-- Центр экрана
 local function getCenter()
     local vp = Camera.ViewportSize
     return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
 end
 
--- Проверка, жив ли игрок
+-- Проверка жизни
 local function isPlayerAlive(plr)
     if not plr or not plr.Character then return false end
     local humanoid = plr.Character:FindFirstChild("Humanoid")
     return humanoid and humanoid.Health > 0
 end
 
--- Получение части тела для прицеливания
+-- Получение части тела
 local function getAimPart(plr)
     if not plr or not plr.Character then return nil end
     if CONFIG.AimPart == "Head" then
@@ -205,148 +203,138 @@ local function getAimPart(plr)
     end
 end
 
--- Поиск ближайшего игрока (с большой зоной)
-local function findNearestPlayer()
+-- Получение дистанции до игрока (в квадратах)
+local function getPlayerDistance(plr)
+    if not plr or not isPlayerAlive(plr) then return math.huge end
+    local part = getAimPart(plr)
+    if not part then return math.huge end
+    
+    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return math.huge end
+    
     local center = getCenter()
+    local dx, dy = pos.X - center.X, pos.Y - center.Y
+    return dx*dx + dy*dy
+end
+
+-- Поиск ближайшего игрока
+local function findNearestPlayer()
     local best = nil
     local bestDist = math.huge
     local searchRadius = CONFIG.SearchRadius ^ 2
     
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= Player and isPlayerAlive(plr) then
-            local part = getAimPart(plr)
-            if part then
-                local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                if onScreen then
-                    local dx, dy = pos.X - center.X, pos.Y - center.Y
-                    local dist = dx*dx + dy*dy
-                    if dist < searchRadius and dist < bestDist then
-                        best = plr
-                        bestDist = dist
-                    end
-                end
+            local dist = getPlayerDistance(plr)
+            if dist < searchRadius and dist < bestDist then
+                best = plr
+                bestDist = dist
             end
         end
     end
     
-    return best
-end
-
--- Поиск следующей цели (рядом с игроком)
-local function findNextTarget()
-    local center = getCenter()
-    local best = nil
-    local bestDist = math.huge
-    local searchRadius = CONFIG.SearchRadius ^ 2
-    
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= Player and plr ~= state.target and isPlayerAlive(plr) then
-            local part = getAimPart(plr)
-            if part then
-                local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                if onScreen then
-                    local dx, dy = pos.X - center.X, pos.Y - center.Y
-                    local dist = dx*dx + dy*dy
-                    if dist < searchRadius and dist < bestDist then
-                        best = plr
-                        bestDist = dist
-                    end
-                end
-            end
-        end
-    end
-    
-    return best
-end
-
--- ============================================================
--- ================ ФИКСАЦИЯ КАМЕРЫ ===========================
--- ============================================================
-
-local function lockOnTarget(plr)
-    if not plr or not isPlayerAlive(plr) then return false end
-    
-    local part = getAimPart(plr)
-    if not part then return false end
-    
-    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
-    if not onScreen then return false end
-    
-    local center = getCenter()
-    local dx, dy = pos.X - center.X, pos.Y - center.Y
-    local dist = dx*dx + dy*dy
-    
-    if dist > CONFIG.LockThreshold then
-        local newCF = CFrame.lookAt(Camera.CFrame.Position, part.Position)
-        Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Speed)
-        return true
-    end
-    
-    return true
+    return best, bestDist
 end
 
 -- ============================================================
 -- ================ ОСНОВНАЯ ЛОГИКА ===========================
 -- ============================================================
 
-local killCount = 0
-local lastHealth = {}
-local switchTimer = 0
-
--- Отслеживание убийств
-local function checkKills()
-    if not state.enabled or not state.target then return end
-    
-    if not isPlayerAlive(state.target) then
-        killCount = killCount + 1
-        killsLabel.Text = "KILLS: " .. killCount
-        
-        -- Ищем следующую цель
-        state.target = nil
-        state.switchCooldown = CONFIG.SwitchDelay
-        
-        -- Уведомление
-        status.Text = "TARGET ELIMINATED"
-        status.TextColor3 = Color3.fromRGB(255, 200, 100)
-        targetLabel.Text = "SEARCHING..."
-        targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-    end
-end
-
--- Основной цикл
 local function processAim()
     if not state.enabled then return end
     
-    -- Обновление таймеров
-    if state.switchCooldown > 0 then
-        state.switchCooldown = state.switchCooldown - 0.016
-        return
-    end
+    -- Поиск ближайшей цели
+    local nearest, nearestDist = findNearestPlayer()
     
-    -- Проверка убийства
-    checkKills()
-    
-    -- Поиск цели
-    if not state.target or not isPlayerAlive(state.target) then
-        state.target = findNearestPlayer()
-        if state.target then
-            local name = state.target.Name
-            status.Text = "LOCKED: " .. name
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: " .. name
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-        else
-            status.Text = "SEARCHING..."
+    -- Если нет целей
+    if not nearest then
+        state.noTargetTimer = state.noTargetTimer + 0.016
+        
+        if CONFIG.AutoOff and state.noTargetTimer > CONFIG.OffDelay then
+            -- Выключаем аим
+            state.enabled = false
+            state.target = nil
+            status.Text = "NO TARGETS - OFF"
             status.TextColor3 = Color3.fromRGB(255, 200, 100)
+            btnToggle.Text = "ACTIVATE"
+            btnToggle.BackgroundColor3 = Color3.fromRGB(20, 50, 90)
+            btnToggle.TextColor3 = Color3.fromRGB(200, 215, 240)
             targetLabel.Text = "TARGET: NONE"
             targetLabel.TextColor3 = Color3.fromRGB(180, 180, 150)
             return
         end
+        
+        if state.target then
+            status.Text = "TARGET LOST"
+            status.TextColor3 = Color3.fromRGB(255, 200, 100)
+            targetLabel.Text = "SEARCHING..."
+            targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        end
+        state.target = nil
+        return
     end
     
-    -- Фиксация
+    -- Сброс таймера
+    state.noTargetTimer = 0
+    
+    -- Проверка на убийство
+    if state.target and not isPlayerAlive(state.target) then
+        state.killCount = state.killCount + 1
+        killsLabel.Text = "KILLS: " .. state.killCount
+        
+        -- Переключаемся на ближайшую цель
+        state.target = nearest
+        state.targetDist = nearestDist
+        
+        local name = nearest.Name
+        status.Text = "NEW TARGET: " .. name
+        status.TextColor3 = Color3.fromRGB(100, 255, 200)
+        targetLabel.Text = "TARGET: " .. name
+        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+        return
+    end
+    
+    -- Если есть новая более близкая цель
+    if state.target and nearestDist < state.targetDist - CONFIG.MinSwitchDist then
+        state.target = nearest
+        state.targetDist = nearestDist
+        
+        local name = nearest.Name
+        status.Text = "SWITCHED: " .. name
+        status.TextColor3 = Color3.fromRGB(100, 255, 200)
+        targetLabel.Text = "TARGET: " .. name
+        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+        return
+    end
+    
+    -- Если нет цели или старая цель дальше новой
+    if not state.target or nearestDist < state.targetDist then
+        state.target = nearest
+        state.targetDist = nearestDist
+        
+        local name = nearest.Name
+        status.Text = "LOCKED: " .. name
+        status.TextColor3 = Color3.fromRGB(100, 255, 200)
+        targetLabel.Text = "TARGET: " .. name
+        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+    end
+    
+    -- Фиксация камеры на цели
     if state.target and isPlayerAlive(state.target) then
-        lockOnTarget(state.target)
+        local part = getAimPart(state.target)
+        if part then
+            local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+            if onScreen then
+                local center = getCenter()
+                local dx, dy = pos.X - center.X, pos.Y - center.Y
+                local dist = dx*dx + dy*dy
+                
+                if dist > CONFIG.LockThreshold then
+                    local newCF = CFrame.lookAt(Camera.CFrame.Position, part.Position)
+                    Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Speed)
+                end
+            end
+        end
     end
 end
 
@@ -357,15 +345,19 @@ end
 local function toggle()
     state.enabled = not state.enabled
     if state.enabled then
-        state.target = findNearestPlayer()
-        if not state.target then
+        local nearest, dist = findNearestPlayer()
+        if not nearest then
             state.enabled = false
             status.Text = "NO PLAYERS"
             status.TextColor3 = Color3.fromRGB(255, 200, 100)
             btnToggle.Text = "RETRY"
             return
         end
-        local name = state.target.Name
+        state.target = nearest
+        state.targetDist = dist
+        state.noTargetTimer = 0
+        
+        local name = nearest.Name
         status.Text = "LOCKED: " .. name
         status.TextColor3 = Color3.fromRGB(100, 255, 200)
         targetLabel.Text = "TARGET: " .. name
@@ -375,6 +367,8 @@ local function toggle()
         btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
     else
         state.target = nil
+        state.targetDist = math.huge
+        state.noTargetTimer = 0
         status.Text = "DISABLED"
         status.TextColor3 = Color3.fromRGB(100, 150, 200)
         btnToggle.Text = "ACTIVATE"
@@ -382,7 +376,7 @@ local function toggle()
         btnToggle.TextColor3 = Color3.fromRGB(200, 215, 240)
         targetLabel.Text = "TARGET: NONE"
         targetLabel.TextColor3 = Color3.fromRGB(180, 180, 150)
-        killCount = 0
+        state.killCount = 0
         killsLabel.Text = "KILLS: 0"
     end
 end
@@ -398,10 +392,6 @@ local function switchAimPart()
         aimLabel.Text = "AIM: HEAD"
         btnAimPart.Text = "SWITCH TO BODY"
         btnAimPart.BackgroundColor3 = Color3.fromRGB(15, 55, 45)
-    end
-    if state.enabled and state.target then
-        status.Text = "AIM SWITCHED"
-        status.TextColor3 = Color3.fromRGB(255, 200, 100)
     end
 end
 
@@ -423,7 +413,7 @@ winButtons.minimize.MouseButton1Click:Connect(function()
         btnExit.Visible = false
         winButtons.minimize.Text = "□"
     else
-        container:TweenSize(UDim2.new(0, 280, 0, 380), "Out", "Quad", 0.3, true)
+        container:TweenSize(UDim2.new(0, 280, 0, 360), "Out", "Quad", 0.3, true)
         status.Visible = true
         targetLabel.Visible = true
         aimLabel.Visible = true
@@ -438,10 +428,10 @@ end)
 winButtons.maximize.MouseButton1Click:Connect(function()
     state.maximized = not state.maximized
     if state.maximized then
-        container:TweenSize(UDim2.new(0, 400, 0, 440), "Out", "Quad", 0.3, true)
-        container:TweenPosition(UDim2.new(0.5, -200, 0.5, -220), "Out", "Quad", 0.3, true)
+        container:TweenSize(UDim2.new(0, 400, 0, 420), "Out", "Quad", 0.3, true)
+        container:TweenPosition(UDim2.new(0.5, -200, 0.5, -210), "Out", "Quad", 0.3, true)
     else
-        container:TweenSize(UDim2.new(0, 280, 0, 380), "Out", "Quad", 0.3, true)
+        container:TweenSize(UDim2.new(0, 280, 0, 360), "Out", "Quad", 0.3, true)
         container:TweenPosition(UDim2.new(0, 16, 0, 16), "Out", "Quad", 0.3, true)
     end
 end)
@@ -468,24 +458,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- ============================================================
--- ================ ФОНОВЫЕ ЗАДАЧИ ============================
--- ============================================================
-
--- Очистка мёртвых целей
-task.spawn(function()
-    while true do
-        task.wait(1)
-        if state.target and not isPlayerAlive(state.target) then
-            state.target = nil
-            status.Text = "TARGET LOST"
-            status.TextColor3 = Color3.fromRGB(255, 200, 100)
-            targetLabel.Text = "TARGET: NONE"
-            targetLabel.TextColor3 = Color3.fromRGB(180, 180, 150)
-        end
-    end
-end)
-
--- ============================================================
 -- ================ ГЛАВНЫЙ ЦИКЛ ==============================
 -- ============================================================
 
@@ -496,13 +468,13 @@ RunService.RenderStepped:Connect(processAim)
 -- ============================================================
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AIM LOCK v17",
+    Title = "AIM LOCK v19",
     Text = "1 - Toggle | 2 - Head/Body",
     Duration = 4
 })
 
-print("✅ AIM LOCK v17.0 LOADED (PVP EDITION)")
+print("✅ AIM LOCK v19.0 LOADED (DYNAMIC + AUTO-OFF)")
 print("📌 1 - Toggle ON/OFF")
 print("📌 2 - Switch aim (HEAD ↔ BODY)")
-print("📌 Auto-switch target after kill")
-print("📌 Large search radius")
+print("📌 Auto-switch to nearest target")
+print("📌 Auto-off if no targets found")
