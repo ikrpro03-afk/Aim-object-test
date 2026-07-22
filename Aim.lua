@@ -1,4 +1,4 @@
--- NOVA v37.0 | FULL + LOADING + ICONS
+-- NOVA v37.1 | FIXED LOADING
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -47,9 +47,6 @@ local State = {
     lastTarget = "",
 }
 
--- ============================================================
---  X-RAY СОСТОЯНИЕ
--- ============================================================
 local XRayState = {
     enabled = true,
     boxes = {},
@@ -60,18 +57,15 @@ local XRayState = {
 }
 
 -- ============================================================
---  ЦЕНТР ЭКРАНА (ОПРЕДЕЛЯЕТСЯ ДО GUI)
+--  ЦЕНТР ЭКРАНА
 -- ============================================================
 local function getCenter()
     local vp = Camera.ViewportSize
-    return Vector2.new(
-        vp.X / 2 + CONFIG.CenterOffset.X,
-        vp.Y / 2 + CONFIG.CenterOffset.Y
-    )
+    return Vector2.new(vp.X / 2 + CONFIG.CenterOffset.X, vp.Y / 2 + CONFIG.CenterOffset.Y)
 end
 
 -- ============================================================
---  GUI (ЗАГРУЗОЧНЫЙ ЭКРАН + ОСНОВНОЙ)
+--  GUI (ЗАГРУЗКА + ОСНОВНОЙ)
 -- ============================================================
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
@@ -85,7 +79,7 @@ local function createGradient(color1, color2)
 end
 
 -- ============================================================
---  ЗАГРУЗОЧНЫЙ ЭКРАН
+--  ЗАГРУЗОЧНЫЙ ЭКРАН (УПРОЩЁННЫЙ)
 -- ============================================================
 local function createLoadingScreen()
     local screen = Instance.new("ScreenGui")
@@ -153,7 +147,7 @@ local function createLoadingScreen()
     versionText.Size = UDim2.new(1, 0, 0, 16)
     versionText.Position = UDim2.new(0, 0, 0, 115)
     versionText.BackgroundTransparency = 1
-    versionText.Text = "v37.0"
+    versionText.Text = "v37.1"
     versionText.TextColor3 = Color3.fromRGB(150, 180, 220)
     versionText.TextSize = 11
     versionText.Font = Enum.Font.Gotham
@@ -193,62 +187,28 @@ local function createLoadingScreen()
 end
 
 -- ============================================================
---  АНИМАЦИЯ ЗАГРУЗКИ
+--  ФУНКЦИЯ ЗАКРЫТИЯ ЗАГРУЗКИ (ПРИНУДИТЕЛЬНАЯ)
 -- ============================================================
-local function animateLoading(loading)
-    local ringTween = TweenService:Create(loading.ring, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, true), {
-        Rotation = 360,
-    })
-    ringTween:Play()
-
-    local messages = {
-        "Initializing...",
-        "Loading Modules...",
-        "Loading Interface...",
-        "Loading Visuals...",
-        "Finalizing...",
-    }
-
-    local progress = 0
-    local step = 100 / #messages
-
-    for i, msg in ipairs(messages) do
-        loading.statusText.Text = msg
-        progress = progress + step
-        local tween = TweenService:Create(loading.fill, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(progress / 100, 0, 1, 0),
+local function closeLoading(loading)
+    if not loading or not loading.screen then return end
+    pcall(function()
+        local fadeOut = TweenService:Create(loading.screen, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 1,
         })
-        tween:Play()
-        tween.Completed:Wait()
-        task.wait(0.15)
-    end
-
-    if loading.fill.Size.X.Scale < 1 then
-        local tween = TweenService:Create(loading.fill, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.new(1, 0, 1, 0),
-        })
-        tween:Play()
-        tween.Completed:Wait()
-    end
-
-    task.wait(0.3)
-
-    local fadeOut = TweenService:Create(loading.screen, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundTransparency = 1,
-    })
-    for _, child in ipairs(loading.screen:GetChildren()) do
-        if child:IsA("Frame") or child:IsA("TextLabel") or child:IsA("ImageLabel") then
-            local t = TweenService:Create(child, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                BackgroundTransparency = 1,
-                TextTransparency = 1,
-                ImageTransparency = 1,
-            })
-            t:Play()
+        for _, child in ipairs(loading.screen:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextLabel") or child:IsA("ImageLabel") then
+                local t = TweenService:Create(child, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    BackgroundTransparency = 1,
+                    TextTransparency = 1,
+                    ImageTransparency = 1,
+                })
+                t:Play()
+            end
         end
-    end
-    fadeOut:Play()
-    fadeOut.Completed:Wait()
-    loading.screen:Destroy()
+        fadeOut:Play()
+        fadeOut.Completed:Wait()
+        loading.screen:Destroy()
+    end)
 end
 
 -- ============================================================
@@ -282,7 +242,6 @@ local function buildMainGUI()
     mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     mainStroke.Parent = main
 
-    -- Заголовок
     local header = Instance.new("Frame")
     header.Size = UDim2.new(1, 0, 0, 36)
     header.BackgroundColor3 = Color3.fromRGB(14, 24, 54)
@@ -305,7 +264,6 @@ local function buildMainGUI()
     title.Font = Enum.Font.GothamBold
     title.Parent = header
 
-    -- Кнопка закрытия (иконка ✕)
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, 28, 0, 28)
     closeBtn.Position = UDim2.new(1, -34, 0, 4)
@@ -316,7 +274,6 @@ local function buildMainGUI()
     closeBtn.Font = Enum.Font.Gotham
     closeBtn.Parent = header
 
-    -- Статусы
     local status = Instance.new("TextLabel")
     status.Size = UDim2.new(1, -20, 0, 18)
     status.Position = UDim2.new(0, 10, 0, 44)
@@ -350,7 +307,6 @@ local function buildMainGUI()
     killsLabel.Font = Enum.Font.Gotham
     killsLabel.Parent = main
 
-    -- Разделитель
     local divider = Instance.new("Frame")
     divider.Size = UDim2.new(1, -20, 0, 1)
     divider.Position = UDim2.new(0, 10, 0, 104)
@@ -359,12 +315,11 @@ local function buildMainGUI()
     divider.BorderSizePixel = 0
     divider.Parent = main
 
-    -- ПАНЕЛЬ ИКОНОК (4 кнопки)
     local iconSize = 48
     local spacing = 12
     local startX = (260 - iconSize * 4 - spacing * 3) / 2
 
-    local function createIconButton(icon, col, row, activeColor)
+    local function createIconButton(icon, col, row)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0, iconSize, 0, iconSize)
         btn.Position = UDim2.new(0, startX + (iconSize + spacing) * col, 0, 116 + (iconSize + spacing) * row)
@@ -388,7 +343,6 @@ local function buildMainGUI()
         stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         stroke.Parent = btn
 
-        -- Hover
         local hoverTween = TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             BackgroundTransparency = 0.1,
             TextColor3 = Color3.fromRGB(100, 200, 255),
@@ -400,7 +354,6 @@ local function buildMainGUI()
         btn.MouseEnter:Connect(function() leaveTween:Cancel(); hoverTween:Play() end)
         btn.MouseLeave:Connect(function() hoverTween:Cancel(); leaveTween:Play() end)
 
-        -- Нажатие
         local pressTween = TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             Size = UDim2.new(0, iconSize - 4, 0, iconSize - 4),
         })
@@ -410,7 +363,6 @@ local function buildMainGUI()
         btn.MouseButton1Down:Connect(function() releaseTween:Cancel(); pressTween:Play() end)
         btn.MouseButton1Up:Connect(function() pressTween:Cancel(); releaseTween:Play() end)
 
-        -- Активное свечение
         local glow = Instance.new("UIStroke")
         glow.Color = Color3.fromRGB(60, 150, 255)
         glow.Thickness = 2
@@ -422,13 +374,11 @@ local function buildMainGUI()
         return btn, glow
     end
 
-    -- Иконки: Power, Crosshair, Eye, Settings
     local btnPower, glowPower = createIconButton("⏻", 0, 0)
     local btnCrosshair, glowCrosshair = createIconButton("⌖", 1, 0)
     local btnEye, glowEye = createIconButton("👁", 2, 0)
     local btnSettings, glowSettings = createIconButton("⚙", 3, 0)
 
-    -- FOV и прицел
     local fovCircle = Instance.new("ImageLabel")
     fovCircle.Size = UDim2.new(0, CONFIG.FOV * 2, 0, CONFIG.FOV * 2)
     fovCircle.Position = UDim2.new(0.5, -CONFIG.FOV, 0.5, -CONFIG.FOV)
@@ -505,19 +455,51 @@ local function buildMainGUI()
 end
 
 -- ============================================================
---  ЗАПУСК ЗАГРУЗКИ, ПОТОМ GUI
+--  ЗАПУСК
 -- ============================================================
-local GUI
 local loading = createLoadingScreen()
 
+-- Запускаем анимацию загрузки с принудительным завершением через 3 секунды
 task.spawn(function()
-    animateLoading(loading)
-    GUI = buildMainGUI()
-    -- Сохраняем в глобальную переменную для доступа из функций
+    -- Вращение кольца
+    local ringTween = TweenService:Create(loading.ring, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, true), {
+        Rotation = 360,
+    })
+    ringTween:Play()
+
+    -- Имитация прогресса
+    local messages = {"Initializing...", "Loading Modules...", "Loading Interface...", "Loading Visuals...", "Finalizing..."}
+    local progress = 0
+    local step = 100 / #messages
+    for i, msg in ipairs(messages) do
+        loading.statusText.Text = msg
+        progress = progress + step
+        local tween = TweenService:Create(loading.fill, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(progress / 100, 0, 1, 0),
+        })
+        tween:Play()
+        tween.Completed:Wait()
+        task.wait(0.1)
+    end
+    -- Добиваем до 100%
+    if loading.fill.Size.X.Scale < 1 then
+        local tween = TweenService:Create(loading.fill, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, 0, 1, 0),
+        })
+        tween:Play()
+        tween.Completed:Wait()
+    end
+    task.wait(0.2)
+
+    -- Закрываем загрузку
+    closeLoading(loading)
+
+    -- Создаём основной GUI
+    local GUI = buildMainGUI()
     _G.NOVA_GUI = GUI
 
     -- ============================================================
-    --  ОБНОВЛЕНИЕ ПРИЦЕЛА ПРИ СМЕНЕ РАЗМЕРА
+    --  ДАЛЬНЕЙШАЯ ИНИЦИАЛИЗАЦИЯ (ЛОГИКА АИМА)
     -- ============================================================
     local function onScreenSizeChanged()
         if GUI and GUI.updateCrosshair then
@@ -527,9 +509,6 @@ task.spawn(function()
     Camera:GetPropertyChangedSignal("ViewportSize"):Connect(onScreenSizeChanged)
     UserInputService.WindowFocused:Connect(onScreenSizeChanged)
 
-    -- ============================================================
-    --  RAYCAST
-    -- ============================================================
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 
@@ -541,9 +520,6 @@ task.spawn(function()
     updateRaycastFilter(Player.Character)
     Player.CharacterAdded:Connect(updateRaycastFilter)
 
-    -- ============================================================
-    --  УТИЛИТЫ
-    -- ============================================================
     local function isAlive(plr)
         if not plr or not plr.Parent then return false end
         if not plr.Character or not plr.Character.Parent then return false end
@@ -602,19 +578,15 @@ task.spawn(function()
         return false
     end
 
-    -- ============================================================
-    --  X-RAY
-    -- ============================================================
+    -- X-RAY (полный код)
     local XRAY_PARTS = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftFoot", "RightFoot", "LeftHand", "RightHand"}
 
     local function getCharacterParts(plr)
         if not plr or not plr.Character or not plr.Character.Parent then return {} end
-        
         local cached = XRayState.partsCache[plr]
         if cached and XRayState.cacheTimers[plr] and os.clock() - XRayState.cacheTimers[plr] < XRayState.CACHE_DURATION then
             return cached
         end
-        
         local char = plr.Character
         local parts = {}
         for _, name in ipairs(XRAY_PARTS) do
@@ -630,7 +602,6 @@ task.spawn(function()
                 end
             end
         end
-        
         XRayState.partsCache[plr] = parts
         XRayState.cacheTimers[plr] = os.clock()
         return parts
@@ -666,7 +637,6 @@ task.spawn(function()
     local function createBox(plr)
         if XRayState.boxes[plr] then return end
         if not XRayState.container or not XRayState.container.Parent then return end
-        
         local container = Instance.new("Frame")
         container.Size = UDim2.new(0, 40, 0, 60)
         container.BackgroundTransparency = 1
@@ -730,7 +700,6 @@ task.spawn(function()
         if not Camera then return end
         
         local color = Color3.fromHSV(hue, 1, 1)
-        
         if data.border then data.border.BackgroundColor3 = color end
         if data.outline then data.outline.BorderColor3 = color end
         if data.name then data.name.TextColor3 = color end
@@ -742,7 +711,6 @@ task.spawn(function()
         end
         
         local minX, maxX, minY, maxY = nil, nil, nil, nil
-        
         for _, part in ipairs(parts) do
             if not part or not part.Parent then continue end
             local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
@@ -767,10 +735,8 @@ task.spawn(function()
         local padding = 4
         local width = maxX - minX + padding * 2
         local height = maxY - minY + padding * 2
-        
         width = math.max(width, 20)
         height = math.max(height, 30)
-        
         data.container.Position = UDim2.new(0, minX - padding, 0, minY - padding)
         data.container.Size = UDim2.new(0, width, 0, height)
         data.container.Visible = true
@@ -778,20 +744,16 @@ task.spawn(function()
 
     local function updateXRay(dt)
         if State.destroyed then return end
-        
         if not XRayState.enabled then
             clearAllBoxes()
             return
         end
-        
         State.hue = (State.hue + dt * 0.2) % 1
-        
         State.xrayTimer = State.xrayTimer + dt
         local shouldUpdatePos = State.xrayTimer >= CONFIG.XRayUpdateInterval
         if shouldUpdatePos then
             State.xrayTimer = 0
         end
-        
         for plr, data in pairs(XRayState.boxes) do
             if data and data.container and data.container.Parent then
                 local color = Color3.fromHSV(State.hue, 1, 1)
@@ -800,17 +762,14 @@ task.spawn(function()
                 if data.name then data.name.TextColor3 = color end
             end
         end
-        
         if not shouldUpdatePos then
             return
         end
-        
         for plr in pairs(XRayState.boxes) do
             if not plr or not plr.Parent or not isAlive(plr) then
                 removeBox(plr)
             end
         end
-        
         for _, plr in pairs(Players:GetPlayers()) do
             if plr ~= Player and plr.Parent and isAlive(plr) then
                 createBox(plr)
@@ -819,39 +778,31 @@ task.spawn(function()
         end
     end
 
-    -- ============================================================
-    --  ЛОГИКА АИМА
-    -- ============================================================
+    -- ЛОГИКА АИМА
     local function updateTargetCF(plr)
         if not plr or not isAlive(plr) then return end
         if not Camera then return end
-        
         local part = getAimPart(plr)
         if not part or not part.Parent then return end
-        
         local pos = part.Position
         local vel = getVelocity(plr)
         local distance = (pos - Camera.CFrame.Position).Magnitude
-        
         local targetPos = pos
         if vel.Magnitude >= 0.1 then
             local flyTime = distance / CONFIG.BulletSpeed
             local predTime = flyTime * CONFIG.PredictionStrength
             targetPos = pos + vel * predTime
         end
-        
         State.targetCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
     end
 
     local function findBestTarget()
         if not Camera or not Player.Character or not Player.Character.Parent then return nil end
-        
         local center = getCenter()
         local best = nil
         local bestDist = math.huge
         local fovSq = CONFIG.FOV ^ 2
         local camPos = Camera.CFrame.Position
-        
         local candidates = {}
         for _, plr in pairs(Players:GetPlayers()) do
             if plr ~= Player and plr.Parent and isAlive(plr) then
@@ -862,7 +813,6 @@ task.spawn(function()
                         local dx = screenPos.X - center.X
                         local dy = screenPos.Y - center.Y
                         local dist = dx*dx + dy*dy
-                        
                         if dist < fovSq then
                             local offset = part.Position - camPos
                             local worldDistSq = offset:Dot(offset)
@@ -879,7 +829,6 @@ task.spawn(function()
                 end
             end
         end
-        
         for _, cand in ipairs(candidates) do
             if isVisible(cand.player) then
                 if cand.dist < bestDist then
@@ -888,61 +837,46 @@ task.spawn(function()
                 end
             end
         end
-        
         return best
     end
 
     local function isTargetInFOV(plr)
         if not plr or not plr.Character or not plr.Character.Parent then return false end
         if not Camera then return false end
-        
         local part = getAimPart(plr)
         if not part or not part.Parent then return false end
-        
         local screenPos = getScreenPos(part)
         if not screenPos then return false end
-        
         local center = getCenter()
         local dx = screenPos.X - center.X
         local dy = screenPos.Y - center.Y
         local dist = dx*dx + dy*dy
-        
         return dist < CONFIG.FOV ^ 2
     end
 
     local function processAim(dt)
         if State.destroyed then return end
         if not Camera then return end
-        
         updateXRay(dt)
-        
-        if not State.enabled then
-            return
-        end
-        
+        if not State.enabled then return end
         State.searchTimer = State.searchTimer + dt
-        
         if State.target and State.target.Parent and isAlive(State.target) then
             local part = getAimPart(State.target)
             local visible = part and part.Parent and isVisible(State.target)
             local inFOV = isTargetInFOV(State.target)
-            
             if part and visible and inFOV then
                 State.lostTimer = 0
                 updateTargetCF(State.target)
-                
                 if State.targetCF then
                     if State.smoothCF then
                         State.smoothCF = State.smoothCF:Lerp(State.targetCF, CONFIG.Smoothness)
                     else
                         State.smoothCF = State.targetCF
                     end
-                    
                     if Camera and State.smoothCF then
                         Camera.CFrame = State.smoothCF
                     end
                 end
-                
                 if GUI.status and GUI.status.Parent then
                     GUI.status.Text = "LOCKED: " .. State.target.Name
                     GUI.status.TextColor3 = Color3.fromRGB(100, 255, 200)
@@ -953,7 +887,6 @@ task.spawn(function()
                 end
                 return
             end
-            
             State.lostTimer = State.lostTimer + dt
             if State.lostTimer > CONFIG.LostTimeout then
                 State.target = nil
@@ -961,28 +894,19 @@ task.spawn(function()
                 State.smoothCF = nil
             end
         end
-        
-        if State.searchTimer < CONFIG.SearchInterval then
-            return
-        end
+        if State.searchTimer < CONFIG.SearchInterval then return end
         State.searchTimer = 0
-        
         local newTarget = findBestTarget()
-        
         if newTarget then
             State.target = newTarget
             State.lostTimer = 0
             State.smoothCF = nil
             State.targetCF = nil
-            
             updateTargetCF(newTarget)
             if State.targetCF then
                 State.smoothCF = State.targetCF
-                if Camera then
-                    Camera.CFrame = State.smoothCF
-                end
+                if Camera then Camera.CFrame = State.smoothCF end
             end
-            
             if GUI.status and GUI.status.Parent then
                 GUI.status.Text = "LOCKED: " .. newTarget.Name
                 GUI.status.TextColor3 = Color3.fromRGB(100, 255, 200)
@@ -997,7 +921,6 @@ task.spawn(function()
                 State.targetCF = nil
                 State.smoothCF = nil
             end
-            
             if GUI.status and GUI.status.Parent then
                 GUI.status.Text = "NO TARGET"
                 GUI.status.TextColor3 = Color3.fromRGB(255, 200, 100)
@@ -1009,17 +932,12 @@ task.spawn(function()
         end
     end
 
-    -- ============================================================
-    --  УПРАВЛЕНИЕ (ПРИВЯЗКА К ИКОНКАМ)
-    -- ============================================================
+    -- УПРАВЛЕНИЕ
     local function toggleAim()
         if State.destroyed then return end
-        
         State.enabled = not State.enabled
-        
         if State.enabled then
             local target = findBestTarget()
-            
             if target then
                 State.target = target
                 State.lostTimer = 0
@@ -1027,13 +945,11 @@ task.spawn(function()
                 State.smoothCF = nil
                 State.searchTimer = 0
                 State.xrayTimer = 0
-                
                 updateTargetCF(target)
                 if State.targetCF and Camera then
                     State.smoothCF = State.targetCF
                     Camera.CFrame = State.smoothCF
                 end
-                
                 if GUI.status and GUI.status.Parent then
                     GUI.status.Text = "LOCKED: " .. target.Name
                     GUI.status.TextColor3 = Color3.fromRGB(100, 255, 200)
@@ -1053,20 +969,17 @@ task.spawn(function()
                     GUI.targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
                 end
             end
-            
             if GUI.glowPower then
                 GUI.glowPower.Visible = true
                 GUI.glowPower.Color = Color3.fromRGB(0, 255, 100)
                 GUI.glowPower.Transparency = 0.2
             end
-            
             if GUI.fovCircle and GUI.fovCircle.Parent then
                 GUI.fovCircle.Visible = CONFIG.ShowFOV
             end
             if GUI.crosshair and GUI.crosshair.Parent then
                 GUI.crosshair.Visible = true
             end
-            
             if not XRayState.container or not XRayState.container.Parent then
                 XRayState.container = Instance.new("Folder")
                 XRayState.container.Name = "XRay"
@@ -1080,7 +993,6 @@ task.spawn(function()
             State.searchTimer = 0
             State.xrayTimer = 0
             State.killCount = 0
-            
             if GUI.status and GUI.status.Parent then
                 GUI.status.Text = "DISABLED"
                 GUI.status.TextColor3 = Color3.fromRGB(200, 220, 240)
@@ -1092,18 +1004,15 @@ task.spawn(function()
             if GUI.killsLabel and GUI.killsLabel.Parent then
                 GUI.killsLabel.Text = "KILLS: 0"
             end
-            
             if GUI.glowPower then
                 GUI.glowPower.Visible = false
             end
-            
             if GUI.fovCircle and GUI.fovCircle.Parent then
                 GUI.fovCircle.Visible = false
             end
             if GUI.crosshair and GUI.crosshair.Parent then
                 GUI.crosshair.Visible = false
             end
-            
             clearAllBoxes()
             clearPartsCache()
             if XRayState.container and XRayState.container.Parent then
@@ -1150,9 +1059,7 @@ task.spawn(function()
         end
     end
 
-    -- ============================================================
-    --  ПРИВЯЗКА КНОПОК
-    -- ============================================================
+    -- ПРИВЯЗКА КНОПОК
     GUI.btnPower.MouseButton1Click:Connect(toggleAim)
     GUI.btnCrosshair.MouseButton1Click:Connect(switchAimPart)
     GUI.btnEye.MouseButton1Click:Connect(toggleXRay)
@@ -1167,9 +1074,6 @@ task.spawn(function()
         clearPartsCache()
     end)
 
-    -- ============================================================
-    --  ОБРАБОТЧИКИ ВЫХОДА ИГРОКА
-    -- ============================================================
     Players.PlayerRemoving:Connect(function(plr)
         removeBox(plr)
         clearPartsCache(plr)
@@ -1191,13 +1095,9 @@ task.spawn(function()
         end
     end
 
-    -- ============================================================
-    --  КЛАВИАТУРА
-    -- ============================================================
     UserInputService.InputBegan:Connect(function(input, processed)
         if processed then return end
         if State.destroyed then return end
-        
         if input.KeyCode == Enum.KeyCode.One then
             toggleAim()
         elseif input.KeyCode == Enum.KeyCode.Two then
@@ -1207,25 +1107,19 @@ task.spawn(function()
         end
     end)
 
-    -- ============================================================
-    --  RENDERSTEP
-    -- ============================================================
     RunService.RenderStepped:Connect(function(dt)
         if State.destroyed then return end
         pcall(processAim, dt)
     end)
 
-    -- ============================================================
-    --  УВЕДОМЛЕНИЕ
-    -- ============================================================
     game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "NOVA v37",
+        Title = "NOVA v37.1",
         Text = "1 - Toggle | 2 - Head/Body | 3 - X-Ray",
         Duration = 3
     })
 
-    print("✅ NOVA v37.0 LOADED")
-    print("📌 1 - Toggle ON/OFF")
-    print("📌 2 - Switch aim (HEAD ↔ BODY)")
-    print("📌 3 - Toggle X-RAY (RGB)")
+    print(" NOVA v37.1 LOADED")
+    print(" 1 - Toggle ON/OFF")
+    print(" 2 - Switch aim (HEAD ↔ BODY)")
+    print(" 3 - Toggle X-RAY (RGB)")
 end)
