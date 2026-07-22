@@ -1,4 +1,4 @@
--- AIM LOCK v10.0 | ULTIMATE
+-- AIM LOCK v11.1 | FINAL
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -7,21 +7,24 @@ local Player = Players.LocalPlayer
 
 -- ===== НАСТРОЙКИ =====
 local SPEED = 0.92
-local CROSSHAIR_STYLE = "DOT"  -- "DOT" или "CROSS"
+local MODE_OBJECTS = "OBJECTS"
+local MODE_PLAYERS = "PLAYERS"
+local CROSSHAIR_STYLE = "DOT"
 
 -- ===== СОСТОЯНИЕ =====
+local mode = MODE_OBJECTS
 local enabled = false
 local visible = true
 local target = nil
 local minimized = false
 local maximized = false
 
--- ===== ГЛОБАЛЬНЫЙ ЦЕНТР ЭКРАНА =====
+-- ===== ЦЕНТР ЭКРАНА =====
 local function getCenter()
     return Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 end
 
--- ===== СОЗДАНИЕ GUI (НЕВИДИМО ДЛЯ АНТИ-ЧИТА) =====
+-- ===== СОЗДАНИЕ GUI =====
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
 gui.ResetOnSpawn = false
@@ -30,7 +33,7 @@ gui.DisplayOrder = 999
 
 -- ===== МЕНЮ =====
 local menu = Instance.new("Frame")
-menu.Size = UDim2.new(0, 280, 0, 250)
+menu.Size = UDim2.new(0, 280, 0, 290)
 menu.Position = UDim2.new(0, 20, 0, 20)
 menu.BackgroundColor3 = Color3.fromRGB(10, 15, 26)
 menu.BackgroundTransparency = 0.05
@@ -57,7 +60,7 @@ local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, -100, 1, 0)
 titleText.Position = UDim2.new(0, 12, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "AIM LOCK v10.0"
+titleText.Text = "AIM LOCK v11.1"
 titleText.TextColor3 = Color3.fromRGB(180, 210, 255)
 titleText.TextSize = 13
 titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -112,14 +115,14 @@ local modeLabel = Instance.new("TextLabel")
 modeLabel.Size = UDim2.new(1, -24, 0, 22)
 modeLabel.Position = UDim2.new(0, 12, 0, 66)
 modeLabel.BackgroundTransparency = 1
-modeLabel.Text = "MODE: FREEZE"
+modeLabel.Text = "MODE: OBJECTS"
 modeLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
 modeLabel.TextSize = 11
 modeLabel.TextXAlignment = Enum.TextXAlignment.Left
 modeLabel.Font = Enum.Font.Gotham
 modeLabel.Parent = menu
 
--- КНОПКА ВКЛ (С ЗЕЛЁНОЙ ИНДИКАЦИЕЙ)
+-- КНОПКА ВКЛ
 local btnToggle = Instance.new("TextButton")
 btnToggle.Size = UDim2.new(1, -24, 0, 34)
 btnToggle.Position = UDim2.new(0, 12, 0, 94)
@@ -151,7 +154,7 @@ local btnCorner2 = Instance.new("UICorner")
 btnCorner2.CornerRadius = UDim.new(0, 6)
 btnCorner2.Parent = btnMode
 
--- КНОПКА СТИЛЯ ПРИЦЕЛА
+-- КНОПКА СТИЛЯ
 local btnStyle = Instance.new("TextButton")
 btnStyle.Size = UDim2.new(1, -24, 0, 30)
 btnStyle.Position = UDim2.new(0, 12, 0, 170)
@@ -167,10 +170,26 @@ local btnCorner3 = Instance.new("UICorner")
 btnCorner3.CornerRadius = UDim.new(0, 6)
 btnCorner3.Parent = btnStyle
 
+-- ===== НОВАЯ КНОПКА: СКРЫТЬ ПРИЦЕЛ =====
+local btnHide = Instance.new("TextButton")
+btnHide.Size = UDim2.new(1, -24, 0, 30)
+btnHide.Position = UDim2.new(0, 12, 0, 206)
+btnHide.BackgroundColor3 = Color3.fromRGB(0, 40, 80)
+btnHide.BorderSizePixel = 0
+btnHide.Text = "HIDE CROSSHAIR"
+btnHide.TextColor3 = Color3.fromRGB(180, 210, 255)
+btnHide.TextSize = 11
+btnHide.Font = Enum.Font.GothamMedium
+btnHide.Parent = menu
+
+local btnCorner4 = Instance.new("UICorner")
+btnCorner4.CornerRadius = UDim.new(0, 6)
+btnCorner4.Parent = btnHide
+
 -- КНОПКА ВЫХОДА
 local btnExit = Instance.new("TextButton")
 btnExit.Size = UDim2.new(1, -24, 0, 34)
-btnExit.Position = UDim2.new(0, 12, 0, 206)
+btnExit.Position = UDim2.new(0, 12, 0, 242)
 btnExit.BackgroundColor3 = Color3.fromRGB(40, 10, 10)
 btnExit.BorderSizePixel = 0
 btnExit.Text = "EXIT SCRIPT"
@@ -179,17 +198,22 @@ btnExit.TextSize = 12
 btnExit.Font = Enum.Font.GothamMedium
 btnExit.Parent = menu
 
-local btnCorner4 = Instance.new("UICorner")
-btnCorner4.CornerRadius = UDim.new(0, 6)
-btnCorner4.Parent = btnExit
+local btnCorner5 = Instance.new("UICorner")
+btnCorner5.CornerRadius = UDim.new(0, 6)
+btnCorner5.Parent = btnExit
 
--- ===== ПРИЦЕЛ (БЕЛЫЙ) =====
+-- ===== ПРИЦЕЛ (ЦЕНТР ЭКРАНА) =====
 local crosshair = Instance.new("Frame")
 crosshair.Size = UDim2.new(0, 0, 0, 0)
 crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
 crosshair.BackgroundTransparency = 1
 crosshair.Parent = gui
 
+local function updateCrosshair()
+    crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+end
+
+-- Создание стилей
 local function createDot()
     for _, c in pairs(crosshair:GetChildren()) do c:Destroy() end
     local dot = Instance.new("Frame")
@@ -238,7 +262,6 @@ local function createCross()
     v2.Parent = crosshair
 end
 
--- УСТАНОВКА СТИЛЯ
 local function setStyle(style)
     CROSSHAIR_STYLE = style
     btnStyle.Text = "STYLE: " .. (style == "DOT" and "DOT" or "CROSS")
@@ -247,12 +270,13 @@ local function setStyle(style)
     else
         createCross()
     end
+    updateCrosshair()
 end
 
 setStyle("DOT")
 
--- ===== ЛОГИКА ПОИСКА ЦЕЛИ =====
-local function findTarget()
+-- ===== ПОИСК ОБЪЕКТА =====
+local function findObject()
     local center = getCenter()
     local best = nil
     local bestDist = math.huge
@@ -273,7 +297,7 @@ local function findTarget()
                 local pos, onScreen = Camera:WorldToViewportPoint(v.Position)
                 if onScreen then
                     local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                    if dist < 200 and dist < bestDist then
+                    if dist < 300 and dist < bestDist then
                         best = v
                         bestDist = dist
                     end
@@ -285,6 +309,7 @@ local function findTarget()
     return best
 end
 
+-- ===== ПОИСК ИГРОКА (ГОЛОВА) =====
 local function findPlayer()
     local center = getCenter()
     local best = nil
@@ -292,12 +317,12 @@ local function findPlayer()
     
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= Player and plr.Character and plr.Character:FindFirstChild("Head") then
-            local part = plr.Character.Head
-            local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+            local head = plr.Character.Head
+            local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
             
             if onScreen then
                 local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                if dist < 250 and dist < bestDist then
+                if dist < 300 and dist < bestDist then
                     best = plr
                     bestDist = dist
                 end
@@ -318,10 +343,11 @@ local function lockObject(obj)
     local center = getCenter()
     local offset = (Vector2.new(pos.X, pos.Y) - center).Magnitude
     
-    if offset < 0.5 then return true end
-    
-    local newCF = CFrame.lookAt(Camera.CFrame.Position, obj.Position)
-    Camera.CFrame = Camera.CFrame:Lerp(newCF, SPEED)
+    if offset > 0.5 then
+        local newCF = CFrame.lookAt(Camera.CFrame.Position, obj.Position)
+        Camera.CFrame = Camera.CFrame:Lerp(newCF, SPEED)
+        return true
+    end
     
     return true
 end
@@ -331,35 +357,68 @@ local function lockPlayer(plr)
         return false
     end
     
-    local part = plr.Character.Head
-    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    local head = plr.Character.Head
+    local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
     if not onScreen then return false end
     
     local center = getCenter()
     local offset = (Vector2.new(pos.X, pos.Y) - center).Magnitude
     
-    if offset < 0.5 then return true end
-    
-    local newCF = CFrame.lookAt(Camera.CFrame.Position, part.Position)
-    Camera.CFrame = Camera.CFrame:Lerp(newCF, SPEED)
+    if offset > 0.5 then
+        local newCF = CFrame.lookAt(Camera.CFrame.Position, head.Position)
+        Camera.CFrame = Camera.CFrame:Lerp(newCF, SPEED)
+        return true
+    end
     
     return true
 end
 
--- ===== УПРАВЛЕНИЕ =====
-local mode = "FREEZE"  -- FREEZE или PLAYER
-local frozenPoint = nil
+-- ===== ОСНОВНАЯ ЛОГИКА =====
+local function processAim()
+    if not enabled then return end
+    
+    if mode == MODE_OBJECTS then
+        if not target or not target.Parent then
+            target = findObject()
+            if not target then
+                status.Text = "NO OBJECT"
+                status.TextColor3 = Color3.fromRGB(255, 200, 100)
+                return
+            end
+            status.Text = "OBJECT LOCKED"
+            status.TextColor3 = Color3.fromRGB(100, 255, 200)
+        end
+        lockObject(target)
+    else
+        if not target or not target.Character or not target.Character:FindFirstChild("Head") then
+            target = findPlayer()
+            if not target then
+                status.Text = "NO PLAYER"
+                status.TextColor3 = Color3.fromRGB(255, 200, 100)
+                return
+            end
+            status.Text = "PLAYER LOCKED"
+            status.TextColor3 = Color3.fromRGB(100, 255, 200)
+        end
+        lockPlayer(target)
+    end
+end
 
+-- ===== УПРАВЛЕНИЕ =====
 local function toggle()
     enabled = not enabled
     if enabled then
-        if mode == "FREEZE" then
-            frozenPoint = Camera.CFrame
-            status.Text = "FROZEN"
+        if mode == MODE_OBJECTS then
+            target = findObject()
+            if not target then
+                enabled = false
+                status.Text = "NO OBJECT"
+                status.TextColor3 = Color3.fromRGB(255, 200, 100)
+                btnToggle.Text = "RETRY"
+                return
+            end
+            status.Text = "OBJECT LOCKED"
             status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            btnToggle.Text = "DEACTIVATE"
-            btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)  -- ЗЕЛЁНЫЙ
-            btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
         else
             target = findPlayer()
             if not target then
@@ -371,33 +430,31 @@ local function toggle()
             end
             status.Text = "PLAYER LOCKED"
             status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            btnToggle.Text = "DEACTIVATE"
-            btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)  -- ЗЕЛЁНЫЙ
-            btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
         end
+        btnToggle.Text = "DEACTIVATE"
+        btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)
+        btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
     else
         target = nil
-        frozenPoint = nil
         status.Text = "DISABLED"
         status.TextColor3 = Color3.fromRGB(100, 150, 200)
         btnToggle.Text = "ACTIVATE"
-        btnToggle.BackgroundColor3 = Color3.fromRGB(0, 40, 80)  -- СИНИЙ
+        btnToggle.BackgroundColor3 = Color3.fromRGB(0, 40, 80)
         btnToggle.TextColor3 = Color3.fromRGB(180, 210, 255)
     end
 end
 
 local function switchMode()
-    if mode == "FREEZE" then
-        mode = "PLAYER"
-        modeLabel.Text = "MODE: PLAYER"
+    if mode == MODE_OBJECTS then
+        mode = MODE_PLAYERS
+        modeLabel.Text = "MODE: PLAYERS"
     else
-        mode = "FREEZE"
-        modeLabel.Text = "MODE: FREEZE"
+        mode = MODE_OBJECTS
+        modeLabel.Text = "MODE: OBJECTS"
     end
     if enabled then
         enabled = false
         target = nil
-        frozenPoint = nil
         status.Text = "DISABLED"
         status.TextColor3 = Color3.fromRGB(100, 150, 200)
         btnToggle.Text = "ACTIVATE"
@@ -415,6 +472,14 @@ local function switchStyle()
     end
 end
 
+-- ===== СКРЫТЬ/ПОКАЗАТЬ ПРИЦЕЛ =====
+local function hideCrosshair()
+    visible = not visible
+    crosshair.Visible = visible
+    btnHide.Text = visible and "HIDE CROSSHAIR" or "SHOW CROSSHAIR"
+end
+
+-- ===== СВЕРНУТЬ =====
 local function minimizeMenu()
     minimized = not minimized
     if minimized then
@@ -424,33 +489,36 @@ local function minimizeMenu()
         btnToggle.Visible = false
         btnMode.Visible = false
         btnStyle.Visible = false
+        btnHide.Visible = false
         btnExit.Visible = false
         btnMin.Text = "□"
     else
-        menu:TweenSize(UDim2.new(0, 280, 0, 250), "Out", "Quad", 0.3, true)
+        menu:TweenSize(UDim2.new(0, 280, 0, 290), "Out", "Quad", 0.3, true)
         status.Visible = true
         modeLabel.Visible = true
         btnToggle.Visible = true
         btnMode.Visible = true
         btnStyle.Visible = true
+        btnHide.Visible = true
         btnExit.Visible = true
         btnMin.Text = "─"
     end
 end
 
--- ===== ПРИВЯЗКА КНОПОК =====
+-- ===== ПРИВЯЗКА =====
 btnToggle.MouseButton1Click:Connect(toggle)
 btnMode.MouseButton1Click:Connect(switchMode)
 btnStyle.MouseButton1Click:Connect(switchStyle)
+btnHide.MouseButton1Click:Connect(hideCrosshair)
 btnMin.MouseButton1Click:Connect(minimizeMenu)
 
 btnMax.MouseButton1Click:Connect(function()
     maximized = not maximized
     if maximized then
-        menu:TweenSize(UDim2.new(0, 400, 0, 300), "Out", "Quad", 0.3, true)
-        menu:TweenPosition(UDim2.new(0.5, -200, 0.5, -150), "Out", "Quad", 0.3, true)
+        menu:TweenSize(UDim2.new(0, 400, 0, 350), "Out", "Quad", 0.3, true)
+        menu:TweenPosition(UDim2.new(0.5, -200, 0.5, -175), "Out", "Quad", 0.3, true)
     else
-        menu:TweenSize(UDim2.new(0, 280, 0, 250), "Out", "Quad", 0.3, true)
+        menu:TweenSize(UDim2.new(0, 280, 0, 290), "Out", "Quad", 0.3, true)
         menu:TweenPosition(UDim2.new(0, 20, 0, 20), "Out", "Quad", 0.3, true)
     end
 end)
@@ -463,7 +531,6 @@ btnExit.MouseButton1Click:Connect(function()
     gui:Destroy()
     enabled = false
     target = nil
-    frozenPoint = nil
 end)
 
 -- ===== КЛАВИАТУРА =====
@@ -475,8 +542,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
     
     if input.KeyCode == Enum.KeyCode.Two then
-        visible = not visible
-        crosshair.Visible = visible
+        hideCrosshair()
     end
     
     if input.KeyCode == Enum.KeyCode.Three then
@@ -490,38 +556,19 @@ end)
 
 -- ===== ГЛАВНЫЙ ЦИКЛ =====
 RunService.RenderStepped:Connect(function()
-    if not enabled then return end
-    
-    if mode == "FREEZE" then
-        if frozenPoint then
-            Camera.CFrame = Camera.CFrame:Lerp(frozenPoint, SPEED)
-        end
-    else
-        if not target or not target.Character or not target.Character:FindFirstChild("Head") then
-            target = findPlayer()
-            if not target then
-                status.Text = "NO PLAYER"
-                status.TextColor3 = Color3.fromRGB(255, 200, 100)
-                return
-            end
-            status.Text = "PLAYER LOCKED"
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-        end
-        if not lockPlayer(target) then
-            target = nil
-        end
-    end
+    updateCrosshair()
+    processAim()
 end)
 
 -- ===== УВЕДОМЛЕНИЕ =====
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "AIM LOCK v10.0",
-    Text = "1 - Toggle | 3 - Mode | 4 - Style",
+    Title = "AIM LOCK v11.1",
+    Text = "1 - Toggle | 2 - Hide | 3 - Mode | 4 - Style",
     Duration = 4
 })
 
-print(" AIM LOCK v10.0 LOADED")
-print(" 1 - Toggle ON/OFF (green indicator)")
-print(" 2 - Hide/Show crosshair")
-print(" 3 - Switch mode (FREEZE ↔ PLAYER)")
-print(" 4 - Switch style (DOT ↔ CROSS)")
+print("✅ AIM LOCK v11.1 LOADED")
+print("📌 1 - Toggle ON/OFF")
+print("📌 2 - Hide/Show crosshair")
+print("📌 3 - Switch mode (OBJECTS ↔ PLAYERS)")
+print("📌 4 - Switch style (DOT ↔ CROSS)")
