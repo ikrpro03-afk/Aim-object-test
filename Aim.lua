@@ -1,8 +1,7 @@
--- AIM LOCK v23.1 | FIXED
+-- AIM LOCK v24.0 | INSTANT AIM + ALWAYS ON X-RAY
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local Camera = workspace.CurrentCamera
 local Player = Players.LocalPlayer
 
@@ -12,17 +11,11 @@ local Player = Players.LocalPlayer
 local CONFIG = {
     AimPart = "Head",
     BackupPart = "UpperTorso",
-    FOV = 45,
-    Smoothness = 0.92,
-    DistanceLimit = 200,
-    DeadZone = 6,
-    Prediction = true,
-    PredictionStrength = 0.55,
-    PredictionMax = 1.5,
-    SwitchDelay = 0.04,
-    LostTimeout = 0.15,
-    MinSwitchDist = 12,
-    XRay = true,
+    FOV = 50,
+    Smoothness = 0.98,
+    DistanceLimit = 250,
+    DeadZone = 1,
+    LostTimeout = 0.05,
     XRayColor = Color3.fromRGB(0, 255, 100),
     ShowFOV = true,
     FOVColor = Color3.fromRGB(255, 255, 255),
@@ -37,11 +30,8 @@ local State = {
     target = nil,
     targetData = nil,
     killCount = 0,
-    lastSwitchTime = 0,
     lostTimer = 0,
-    frameCount = 0,
-    minimized = false,
-    maximized = false,
+    waitingForTarget = false,
 }
 
 -- ============================================================
@@ -54,282 +44,7 @@ local XRayState = {
 }
 
 -- ============================================================
---  КЕШИ
--- ============================================================
-local Cache = {
-    center = Vector2.new(0, 0),
-    viewport = Vector2.new(0, 0),
-}
-
--- ============================================================
---  УТИЛИТЫ
--- ============================================================
-local function getCenter()
-    local vp = Camera.ViewportSize
-    if vp ~= Cache.viewport then
-        Cache.viewport = vp
-        Cache.center = Vector2.new(vp.X * 0.5, vp.Y * 0.5)
-    end
-    return Cache.center
-end
-
-local function isAlive(plr)
-    if not plr or not plr.Character then return false end
-    local humanoid = plr.Character:FindFirstChild("Humanoid")
-    return humanoid and humanoid.Health > 0
-end
-
-local function getAimPart(plr)
-    if not plr or not plr.Character then return nil end
-    local char = plr.Character
-    local part = char:FindFirstChild(CONFIG.AimPart)
-    if part then return part end
-    part = char:FindFirstChild(CONFIG.BackupPart)
-    if part then return part end
-    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-end
-
-local function getScreenPos(part)
-    if not part then return nil end
-    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
-    if not onScreen then return nil end
-    return Vector2.new(pos.X, pos.Y)
-end
-
-local function getWorldDistance(plr)
-    local part = getAimPart(plr)
-    if not part then return math.huge end
-    return (part.Position - Camera.CFrame.Position).Magnitude
-end
-
-local function getVelocity(plr)
-    if not plr or not plr.Character then return Vector3.new(0, 0, 0) end
-    local root = plr.Character:FindFirstChild("HumanoidRootPart")
-    if root then return root.Velocity end
-    return Vector3.new(0, 0, 0)
-end
-
--- ============================================================
---  VISIBILITY CHECK
--- ============================================================
-local raycastParams = RaycastParams.new()
-raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-raycastParams.FilterDescendantsInstances = {Player.Character}
-
-local function isVisible(plr)
-    if not plr or not plr.Character then return false end
-    
-    local part = getAimPart(plr)
-    if not part then return false end
-    
-    local origin = Camera.CFrame.Position
-    local targetPos = part.Position
-    local direction = (targetPos - origin).Unit
-    local distance = (targetPos - origin).Magnitude
-    
-    if distance > CONFIG.DistanceLimit then return false end
-    
-    local result = workspace:Raycast(origin, direction * distance, raycastParams)
-    if not result then return true end
-    
-    local hit = result.Instance
-    local parent = hit.Parent
-    while parent do
-        if parent == plr.Character then return true end
-        parent = parent.Parent
-    end
-    
-    return false
-end
-
--- ============================================================
---  X-RAY (ESP) С ИСПОЛЬЗОВАНИЕМ GETBOUNDINGBOX
--- ============================================================
-local function createBox(plr)
-    if XRayState.boxes[plr] then return end
-    if not XRayState.container then return end
-    
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(0, 40, 0, 60)
-    container.BackgroundTransparency = 1
-    container.Parent = XRayState.container
-    
-    local border = Instance.new("Frame")
-    border.Size = UDim2.new(1, 0, 1, 0)
-    border.BackgroundTransparency = 0.85
-    border.BackgroundColor3 = CONFIG.XRayColor
-    border.BorderSizePixel = 0
-    border.Parent = container
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
-    corner.Parent = border
-    
-    local outline = Instance.new("Frame")
-    outline.Size = UDim2.new(1, 0, 1, 0)
-    outline.Position = UDim2.new(0, 1, 0, 1)
-    outline.Size = UDim2.new(1, -2, 1, -2)
-    outline.BackgroundTransparency = 1
-    outline.BorderSizePixel = 1
-    outline.BorderColor3 = CONFIG.XRayColor
-    outline.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    outline.BackgroundTransparency = 0.7
-    outline.Parent = container
-    
-    local outlineCorner = Instance.new("UICorner")
-    outlineCorner.CornerRadius = UDim.new(0, 3)
-    outlineCorner.Parent = outline
-    
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(1, 0, 0, 16)
-    nameLabel.Position = UDim2.new(0, 0, 1, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = plr.Name
-    nameLabel.TextColor3 = CONFIG.XRayColor
-    nameLabel.TextSize = 10
-    nameLabel.Font = Enum.Font.Gotham
-    nameLabel.TextStrokeTransparency = 0.3
-    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    nameLabel.Parent = container
-    
-    XRayState.boxes[plr] = {
-        container = container,
-        border = border,
-        outline = outline,
-        name = nameLabel,
-    }
-end
-
-local function updateBox(plr)
-    local data = XRayState.boxes[plr]
-    if not data then return end
-    if not plr or not plr.Character then
-        removeBox(plr)
-        return
-    end
-    
-    local char = plr.Character
-    local modelCF, modelSize = char:GetBoundingBox()
-    
-    if modelSize.Magnitude < 0.5 then
-        data.container.Visible = false
-        return
-    end
-    
-    -- Получаем 8 углов BoundingBox
-    local center = modelCF.Position
-    local sx, sy, sz = modelSize.X/2, modelSize.Y/2, modelSize.Z/2
-    local right = modelCF.RightVector
-    local up = modelCF.UpVector
-    local look = modelCF.LookVector
-    
-    local corners = {
-        center + right*sx + up*sy + look*sz,
-        center + right*sx + up*sy - look*sz,
-        center + right*sx - up*sy + look*sz,
-        center + right*sx - up*sy - look*sz,
-        center - right*sx + up*sy + look*sz,
-        center - right*sx + up*sy - look*sz,
-        center - right*sx - up*sy + look*sz,
-        center - right*sx - up*sy - look*sz,
-    }
-    
-    -- Конвертируем все углы в экранные координаты
-    local screenCorners = {}
-    for _, cornerPos in ipairs(corners) do
-        local screenPos, onScreen = Camera:WorldToViewportPoint(cornerPos)
-        if onScreen then
-            table.insert(screenCorners, Vector2.new(screenPos.X, screenPos.Y))
-        end
-    end
-    
-    -- Если ни одного угла не видно, скрываем
-    if #screenCorners == 0 then
-        data.container.Visible = false
-        return
-    end
-    
-    -- Находим минимальные и максимальные X и Y
-    local minX, maxX = screenCorners[1].X, screenCorners[1].X
-    local minY, maxY = screenCorners[1].Y, screenCorners[1].Y
-    
-    for i = 2, #screenCorners do
-        local p = screenCorners[i]
-        if p.X < minX then minX = p.X end
-        if p.X > maxX then maxX = p.X end
-        if p.Y < minY then minY = p.Y end
-        if p.Y > maxY then maxY = p.Y end
-    end
-    
-    -- Добавляем отступ
-    local padding = 4
-    local width = maxX - minX + padding * 2
-    local height = maxY - minY + padding * 2
-    
-    -- Минимальный размер
-    width = math.max(width, 20)
-    height = math.max(height, 30)
-    
-    data.container.Position = UDim2.new(0, minX - padding, 0, minY - padding)
-    data.container.Size = UDim2.new(0, width, 0, height)
-    data.container.Visible = true
-end
-
-local function removeBox(plr)
-    local data = XRayState.boxes[plr]
-    if data then
-        data.container:Destroy()
-        XRayState.boxes[plr] = nil
-    end
-end
-
-local function clearAllBoxes()
-    for plr in pairs(XRayState.boxes) do
-        removeBox(plr)
-    end
-    XRayState.boxes = {}
-end
-
-local function updateXRay()
-    if not XRayState.enabled or not State.enabled then
-        clearAllBoxes()
-        return
-    end
-    
-    -- Удаляем мёртвых игроков
-    for plr in pairs(XRayState.boxes) do
-        if not plr or not isAlive(plr) then
-            removeBox(plr)
-        end
-    end
-    
-    local center = getCenter()
-    local fovSq = (CONFIG.FOV * 2) ^ 2
-    
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= Player and isAlive(plr) then
-            local part = getAimPart(plr)
-            if part then
-                local screenPos = getScreenPos(part)
-                if screenPos then
-                    local dx = screenPos.X - center.X
-                    local dy = screenPos.Y - center.Y
-                    local dist = dx*dx + dy*dy
-                    
-                    if dist < fovSq then
-                        createBox(plr)
-                        updateBox(plr)
-                    else
-                        removeBox(plr)
-                    end
-                end
-            end
-        end
-    end
-end
-
--- ============================================================
---  GUI (полностью рабочий)
+--  GUI (без изменений)
 -- ============================================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
@@ -350,7 +65,6 @@ local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 12)
 mainCorner.Parent = main
 
--- ЗАГОЛОВОК
 local header = Instance.new("Frame")
 header.Size = UDim2.new(1, 0, 0, 36)
 header.BackgroundColor3 = Color3.fromRGB(16, 22, 40)
@@ -365,14 +79,13 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.new(0, 14, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "AIM LOCK v23"
+title.Text = "AIM LOCK v24"
 title.TextColor3 = Color3.fromRGB(190, 215, 255)
 title.TextSize = 14
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamMedium
 title.Parent = header
 
--- КНОПКИ ОКНА
 local winButtons = {}
 for i, data in ipairs({
     {text = "─", pos = 1, color = Color3.fromRGB(180, 210, 255), action = "minimize"},
@@ -391,7 +104,6 @@ for i, data in ipairs({
     winButtons[data.action] = btn
 end
 
--- РАЗДЕЛИТЕЛЬ
 local divider = Instance.new("Frame")
 divider.Size = UDim2.new(1, -28, 0, 1)
 divider.Position = UDim2.new(0, 14, 0, 36)
@@ -399,7 +111,6 @@ divider.BackgroundColor3 = Color3.fromRGB(40, 50, 70)
 divider.BorderSizePixel = 0
 divider.Parent = main
 
--- СТАТУСЫ
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, -28, 0, 22)
 status.Position = UDim2.new(0, 14, 0, 46)
@@ -444,7 +155,6 @@ killsLabel.TextXAlignment = Enum.TextXAlignment.Left
 killsLabel.Font = Enum.Font.Gotham
 killsLabel.Parent = main
 
--- КНОПКИ
 local function createButton(text, y, color)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -28, 0, 34)
@@ -456,11 +166,9 @@ local function createButton(text, y, color)
     btn.TextSize = 12
     btn.Font = Enum.Font.GothamMedium
     btn.Parent = main
-    
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = btn
-    
     return btn
 end
 
@@ -522,7 +230,251 @@ end
 if CONFIG.CrosshairStyle == "DOT" then createDot() else createCross() end
 
 -- ============================================================
---  ЛОГИКА ПОИСКА ЦЕЛИ
+--  УТИЛИТЫ
+-- ============================================================
+local function getCenter()
+    local vp = Camera.ViewportSize
+    return Vector2.new(vp.X * 0.5, vp.Y * 0.5)
+end
+
+local function isAlive(plr)
+    if not plr or not plr.Character then return false end
+    local humanoid = plr.Character:FindFirstChild("Humanoid")
+    return humanoid and humanoid.Health > 0
+end
+
+local function getAimPart(plr)
+    if not plr or not plr.Character then return nil end
+    local char = plr.Character
+    local part = char:FindFirstChild(CONFIG.AimPart)
+    if part then return part end
+    part = char:FindFirstChild(CONFIG.BackupPart)
+    if part then return part end
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+end
+
+local function getScreenPos(part)
+    if not part then return nil end
+    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return nil end
+    return Vector2.new(pos.X, pos.Y)
+end
+
+local function getWorldDistance(plr)
+    local part = getAimPart(plr)
+    if not part then return math.huge end
+    return (part.Position - Camera.CFrame.Position).Magnitude
+end
+
+local function getVelocity(plr)
+    if not plr or not plr.Character then return Vector3.new(0, 0, 0) end
+    local root = plr.Character:FindFirstChild("HumanoidRootPart")
+    if root then return root.Velocity end
+    return Vector3.new(0, 0, 0)
+end
+
+-- ============================================================
+--  VISIBILITY CHECK (КАЖДЫЙ КАДР)
+-- ============================================================
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+raycastParams.FilterDescendantsInstances = {Player.Character}
+
+local function isVisible(plr)
+    if not plr or not plr.Character then return false end
+    
+    local part = getAimPart(plr)
+    if not part then return false end
+    
+    local origin = Camera.CFrame.Position
+    local targetPos = part.Position
+    local direction = (targetPos - origin).Unit
+    local distance = (targetPos - origin).Magnitude
+    
+    if distance > CONFIG.DistanceLimit then return false end
+    
+    local result = workspace:Raycast(origin, direction * distance, raycastParams)
+    if not result then return true end
+    
+    local hit = result.Instance
+    local parent = hit.Parent
+    while parent do
+        if parent == plr.Character then return true end
+        parent = parent.Parent
+    end
+    
+    return false
+end
+
+-- ============================================================
+--  X-RAY (ВСЕГДА ВКЛЮЧЁН, ВНЕ ЗАВИСИМОСТИ ОТ FOV)
+-- ============================================================
+local function createBox(plr)
+    if XRayState.boxes[plr] then return end
+    if not XRayState.container then return end
+    
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 40, 0, 60)
+    container.BackgroundTransparency = 1
+    container.Parent = XRayState.container
+    
+    local border = Instance.new("Frame")
+    border.Size = UDim2.new(1, 0, 1, 0)
+    border.BackgroundTransparency = 0.85
+    border.BackgroundColor3 = CONFIG.XRayColor
+    border.BorderSizePixel = 0
+    border.Parent = container
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = border
+    
+    local outline = Instance.new("Frame")
+    outline.Size = UDim2.new(1, 0, 1, 0)
+    outline.Position = UDim2.new(0, 1, 0, 1)
+    outline.Size = UDim2.new(1, -2, 1, -2)
+    outline.BackgroundTransparency = 1
+    outline.BorderSizePixel = 1
+    outline.BorderColor3 = CONFIG.XRayColor
+    outline.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    outline.BackgroundTransparency = 0.7
+    outline.Parent = container
+    local outlineCorner = Instance.new("UICorner")
+    outlineCorner.CornerRadius = UDim.new(0, 3)
+    outlineCorner.Parent = outline
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0, 16)
+    nameLabel.Position = UDim2.new(0, 0, 1, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = plr.Name
+    nameLabel.TextColor3 = CONFIG.XRayColor
+    nameLabel.TextSize = 10
+    nameLabel.Font = Enum.Font.Gotham
+    nameLabel.TextStrokeTransparency = 0.3
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.Parent = container
+    
+    XRayState.boxes[plr] = {
+        container = container,
+        border = border,
+        outline = outline,
+        name = nameLabel,
+    }
+end
+
+local function updateBox(plr)
+    local data = XRayState.boxes[plr]
+    if not data then return end
+    if not plr or not plr.Character then
+        removeBox(plr)
+        return
+    end
+    
+    local char = plr.Character
+    local modelCF, modelSize = char:GetBoundingBox()
+    if modelSize.Magnitude < 0.5 then
+        data.container.Visible = false
+        return
+    end
+    
+    local center = modelCF.Position
+    local sx, sy, sz = modelSize.X/2, modelSize.Y/2, modelSize.Z/2
+    local right = modelCF.RightVector
+    local up = modelCF.UpVector
+    local look = modelCF.LookVector
+    
+    local corners = {
+        center + right*sx + up*sy + look*sz,
+        center + right*sx + up*sy - look*sz,
+        center + right*sx - up*sy + look*sz,
+        center + right*sx - up*sy - look*sz,
+        center - right*sx + up*sy + look*sz,
+        center - right*sx + up*sy - look*sz,
+        center - right*sx - up*sy + look*sz,
+        center - right*sx - up*sy - look*sz,
+    }
+    
+    local screenCorners = {}
+    for _, cornerPos in ipairs(corners) do
+        local screenPos, onScreen = Camera:WorldToViewportPoint(cornerPos)
+        if onScreen then
+            table.insert(screenCorners, Vector2.new(screenPos.X, screenPos.Y))
+        end
+    end
+    
+    if #screenCorners == 0 then
+        data.container.Visible = false
+        return
+    end
+    
+    local minX, maxX = screenCorners[1].X, screenCorners[1].X
+    local minY, maxY = screenCorners[1].Y, screenCorners[1].Y
+    
+    for i = 2, #screenCorners do
+        local p = screenCorners[i]
+        if p.X < minX then minX = p.X end
+        if p.X > maxX then maxX = p.X end
+        if p.Y < minY then minY = p.Y end
+        if p.Y > maxY then maxY = p.Y end
+    end
+    
+    local padding = 4
+    local width = maxX - minX + padding * 2
+    local height = maxY - minY + padding * 2
+    
+    width = math.max(width, 20)
+    height = math.max(height, 30)
+    
+    data.container.Position = UDim2.new(0, minX - padding, 0, minY - padding)
+    data.container.Size = UDim2.new(0, width, 0, height)
+    data.container.Visible = true
+end
+
+local function removeBox(plr)
+    local data = XRayState.boxes[plr]
+    if data then
+        data.container:Destroy()
+        XRayState.boxes[plr] = nil
+    end
+end
+
+local function clearAllBoxes()
+    for plr in pairs(XRayState.boxes) do
+        removeBox(plr)
+    end
+    XRayState.boxes = {}
+end
+
+local function updateXRay()
+    if not XRayState.enabled then
+        clearAllBoxes()
+        return
+    end
+    
+    for plr in pairs(XRayState.boxes) do
+        if not plr or not isAlive(plr) then
+            removeBox(plr)
+        end
+    end
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= Player and isAlive(plr) then
+            local part = getAimPart(plr)
+            if part then
+                local screenPos = getScreenPos(part)
+                if screenPos then
+                    createBox(plr)
+                    updateBox(plr)
+                else
+                    removeBox(plr)
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================
+--  ПОИСК ЛУЧШЕЙ ЦЕЛИ (КАЖДЫЙ КАДР, БЕЗ ЗАДЕРЖЕК)
 -- ============================================================
 local function findBestTarget()
     local center = getCenter()
@@ -532,6 +484,7 @@ local function findBestTarget()
     
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= Player and isAlive(plr) then
+            -- Проверка видимости
             if not isVisible(plr) then 
                 continue 
             end
@@ -583,109 +536,113 @@ local function getTargetData(plr)
 end
 
 -- ============================================================
---  ПРЕДИКЦИЯ
+--  ПРЕДИКЦИЯ (АВТОМАТИЧЕСКАЯ)
 -- ============================================================
 local function calculatePrediction(targetData)
-    if not CONFIG.Prediction or not targetData then 
-        return targetData and targetData.position or nil 
-    end
+    if not targetData then return nil end
     
     local vel = targetData.velocity
     if vel.Magnitude < 0.1 then 
         return targetData.position 
     end
     
-    local dist = targetData.worldDist or getWorldDistance(targetData.player)
+    local dist = targetData.worldDist
     if dist > CONFIG.DistanceLimit then 
         return targetData.position 
     end
     
-    local bulletSpeed = 2000
-    local flyTime = dist / bulletSpeed
-    local predTime = math.min(flyTime * CONFIG.PredictionStrength, CONFIG.PredictionMax)
+    -- Автоматический расчёт силы предикции
+    local speed = vel.Magnitude
+    local baseTime = 0.3
+    local predTime = math.min(baseTime * (speed / 20), 1.5)
     
     return targetData.position + vel * predTime
 end
 
 -- ============================================================
---  ОСНОВНАЯ ЛОГИКА АИМА
+--  ОСНОВНАЯ ЛОГИКА АИМА (МГНОВЕННАЯ)
 -- ============================================================
 local function processAim()
+    -- X-Ray обновляется всегда
+    updateXRay()
+    
     if not State.enabled then 
         return 
     end
     
-    State.frameCount = State.frameCount + 1
+    -- Поиск цели всегда
+    local best, bestDist = findBestTarget()
     
-    -- Поиск цели (каждый 2-й кадр)
-    local nearest, nearestDist
-    if State.frameCount % 2 == 0 then
-        nearest, nearestDist = findBestTarget()
+    -- Если есть лучшая цель и она видима
+    if best and isVisible(best) then
+        State.lostTimer = 0
+        
+        -- Обновляем цель если есть новая или текущая умерла
+        if not State.target or not isAlive(State.target) or not isVisible(State.target) then
+            State.target = best
+            State.targetData = getTargetData(best)
+            State.waitingForTarget = false
+            
+            status.Text = "LOCKED: " .. best.Name
+            status.TextColor3 = Color3.fromRGB(100, 255, 200)
+            targetLabel.Text = "TARGET: " .. best.Name
+            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+        end
+        
+        -- Если текущая цель не лучшая, но жива и видима - держим её
+        if State.target and State.target ~= best and isAlive(State.target) and isVisible(State.target) then
+            -- Проверяем, не стала ли новая цель значительно ближе
+            local currentData = State.targetData
+            local currentDist = currentData and currentData.screenPos and (function()
+                local center = getCenter()
+                local dx = currentData.screenPos.X - center.X
+                local dy = currentData.screenPos.Y - center.Y
+                return dx*dx + dy*dy
+            end)() or math.huge
+            
+            if bestDist < currentDist - 50 then
+                State.target = best
+                State.targetData = getTargetData(best)
+                status.Text = "SWITCHED: " .. best.Name
+                status.TextColor3 = Color3.fromRGB(100, 255, 200)
+                targetLabel.Text = "TARGET: " .. best.Name
+                targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+            end
+        end
     else
-        nearest, nearestDist = State.target, State.targetDist or math.huge
-    end
-    
-    -- Нет целей
-    if not nearest or not isAlive(nearest) then
+        -- Нет целей
         State.lostTimer = State.lostTimer + 0.016
+        
         if State.lostTimer > CONFIG.LostTimeout then
             State.target = nil
             State.targetData = nil
-            status.Text = "TARGET LOST"
+            State.waitingForTarget = true
+            
+            status.Text = "WAITING..."
             status.TextColor3 = Color3.fromRGB(255, 200, 100)
             targetLabel.Text = "SEARCHING..."
             targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
         end
-        return
     end
     
-    State.lostTimer = 0
-    
-    -- Проверка убийства
-    if State.target and not isAlive(State.target) then
-        State.killCount = State.killCount + 1
-        killsLabel.Text = "KILLS: " .. State.killCount
-        State.target = nil
-        State.targetData = nil
-    end
-    
-    -- Переключение цели
-    if State.target and nearest ~= State.target then
-        local currentData = State.targetData
-        local currentDist = currentData and currentData.screenPos and (function()
-            local center = getCenter()
-            local dx = currentData.screenPos.X - center.X
-            local dy = currentData.screenPos.Y - center.Y
-            return dx*dx + dy*dy
-        end)() or math.huge
-        
-        if nearestDist < currentDist - CONFIG.MinSwitchDist then
-            if tick() - State.lastSwitchTime > CONFIG.SwitchDelay then
-                State.target = nearest
-                State.targetDist = nearestDist
-                State.targetData = getTargetData(nearest)
-                State.lastSwitchTime = tick()
-                
-                status.Text = "SWITCHED: " .. nearest.Name
-                status.TextColor3 = Color3.fromRGB(100, 255, 200)
-                targetLabel.Text = "TARGET: " .. nearest.Name
-                targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-            end
+    -- Если цель потеряна, но режим ожидания включён, ищем новую
+    if State.waitingForTarget then
+        local newTarget, _ = findBestTarget()
+        if newTarget and isVisible(newTarget) then
+            State.target = newTarget
+            State.targetData = getTargetData(newTarget)
+            State.waitingForTarget = false
+            State.lostTimer = 0
+            
+            status.Text = "LOCKED: " .. newTarget.Name
+            status.TextColor3 = Color3.fromRGB(100, 255, 200)
+            targetLabel.Text = "TARGET: " .. newTarget.Name
+            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
         end
-    elseif not State.target then
-        State.target = nearest
-        State.targetDist = nearestDist
-        State.targetData = getTargetData(nearest)
-        State.lastSwitchTime = tick()
-        
-        status.Text = "LOCKED: " .. nearest.Name
-        status.TextColor3 = Color3.fromRGB(100, 255, 200)
-        targetLabel.Text = "TARGET: " .. nearest.Name
-        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
     end
     
-    -- СОПРОВОЖДЕНИЕ
-    if State.targetData then
+    -- СОПРОВОЖДЕНИЕ (МГНОВЕННОЕ)
+    if State.targetData and State.target and isAlive(State.target) and isVisible(State.target) then
         State.targetData = getTargetData(State.target)
         if State.targetData then
             local targetPos = calculatePrediction(State.targetData)
@@ -715,19 +672,32 @@ local function toggleAim()
     State.enabled = not State.enabled
     
     if State.enabled then
-        local nearest, dist = findBestTarget()
+        local nearest, _ = findBestTarget()
         if not nearest then
-            State.enabled = false
-            status.Text = "NO TARGETS"
+            status.Text = "WAITING..."
             status.TextColor3 = Color3.fromRGB(255, 200, 100)
-            btnToggle.Text = "RETRY"
+            targetLabel.Text = "SEARCHING..."
+            targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+            btnToggle.Text = "ACTIVE"
+            btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)
+            btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
+            State.waitingForTarget = true
+            
+            fovCircle.Visible = CONFIG.ShowFOV
+            crosshair.Visible = true
+            
+            if not XRayState.container then
+                XRayState.container = Instance.new("Folder")
+                XRayState.container.Name = "XRay"
+                XRayState.container.Parent = gui
+            end
             return
         end
         
         State.target = nearest
-        State.targetDist = dist
         State.targetData = getTargetData(nearest)
         State.lostTimer = 0
+        State.waitingForTarget = false
         
         status.Text = "LOCKED: " .. nearest.Name
         status.TextColor3 = Color3.fromRGB(100, 255, 200)
@@ -749,6 +719,7 @@ local function toggleAim()
         State.target = nil
         State.targetData = nil
         State.lostTimer = 0
+        State.waitingForTarget = false
         State.killCount = 0
         
         status.Text = "DISABLED"
@@ -798,12 +769,10 @@ local function toggleXRay()
             XRayState.container:Destroy()
             XRayState.container = nil
         end
-    elseif State.enabled then
-        if not XRayState.container then
-            XRayState.container = Instance.new("Folder")
-            XRayState.container.Name = "XRay"
-            XRayState.container.Parent = gui
-        end
+    elseif not XRayState.container then
+        XRayState.container = Instance.new("Folder")
+        XRayState.container.Name = "XRay"
+        XRayState.container.Parent = gui
     end
 end
 
@@ -815,16 +784,7 @@ btnAimPart.MouseButton1Click:Connect(switchAimPart)
 btnXRay.MouseButton1Click:Connect(toggleXRay)
 
 winButtons.minimize.MouseButton1Click:Connect(function()
-    State.minimized = not State.minimized
     if State.minimized then
-        main:TweenSize(UDim2.new(0, 200, 0, 36), "Out", "Quad", 0.3, true)
-        for _, child in ipairs(main:GetChildren()) do
-            if child:IsA("TextLabel") or (child:IsA("TextButton") and child ~= header) then
-                child.Visible = false
-            end
-        end
-        winButtons.minimize.Text = "□"
-    else
         main:TweenSize(UDim2.new(0, 280, 0, 420), "Out", "Quad", 0.3, true)
         for _, child in ipairs(main:GetChildren()) do
             if child:IsA("TextLabel") or child:IsA("TextButton") then
@@ -832,6 +792,16 @@ winButtons.minimize.MouseButton1Click:Connect(function()
             end
         end
         winButtons.minimize.Text = "─"
+        State.minimized = false
+    else
+        main:TweenSize(UDim2.new(0, 200, 0, 36), "Out", "Quad", 0.3, true)
+        for _, child in ipairs(main:GetChildren()) do
+            if child:IsA("TextLabel") or (child:IsA("TextButton") and child ~= header) then
+                child.Visible = false
+            end
+        end
+        winButtons.minimize.Text = "□"
+        State.minimized = true
     end
 end)
 
@@ -878,5 +848,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- ============================================================
---  X-RAY ОБНОВЛЕНИЕ (ОТДЕЛЬНЫЙ ПОТОК)
+--  ГЛАВНЫЙ ЦИКЛ (ОДИН НА ВСЁ)
+-- ============================================================
+RunService.RenderStepped:Connect(processAim)
+
+-- ============================================================
+--  СТАРТ
 -- =================================
