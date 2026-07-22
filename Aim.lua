@@ -1,4 +1,4 @@
--- AIM LOCK v24.0 | INSTANT AIM + ALWAYS ON X-RAY
+-- AIM LOCK v25.0 | PERFECT ARCHITECTURE
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -14,7 +14,7 @@ local CONFIG = {
     FOV = 50,
     Smoothness = 0.98,
     DistanceLimit = 250,
-    DeadZone = 1,
+    PredictionStrength = 0.75,
     LostTimeout = 0.05,
     XRayColor = Color3.fromRGB(0, 255, 100),
     ShowFOV = true,
@@ -28,10 +28,14 @@ local CONFIG = {
 local State = {
     enabled = false,
     target = nil,
-    targetData = nil,
-    killCount = 0,
+    targetPart = nil,
+    targetPos = nil,
+    targetScreen = nil,
     lostTimer = 0,
-    waitingForTarget = false,
+    hasTarget = false,
+    killCount = 0,
+    minimized = false,
+    maximized = false,
 }
 
 -- ============================================================
@@ -44,7 +48,7 @@ local XRayState = {
 }
 
 -- ============================================================
---  GUI (без изменений)
+--  GUI (БЕЗ ИЗМЕНЕНИЙ)
 -- ============================================================
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimLock_" .. tostring(math.random(1000, 9999))
@@ -79,7 +83,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -90, 1, 0)
 title.Position = UDim2.new(0, 14, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "AIM LOCK v24"
+title.Text = "AIM LOCK v25"
 title.TextColor3 = Color3.fromRGB(190, 215, 255)
 title.TextSize = 14
 title.TextXAlignment = Enum.TextXAlignment.Left
@@ -210,23 +214,6 @@ local function createDot()
     corner.Parent = dot
 end
 
-local function createCross()
-    for _, c in pairs(crosshair:GetChildren()) do c:Destroy() end
-    local size, thick = 12, 1.5
-    local parts = {
-        {x = -size/2, y = -thick/2, w = size, h = thick},
-        {x = -thick/2, y = -size/2, w = thick, h = size},
-    }
-    for _, data in ipairs(parts) do
-        local part = Instance.new("Frame")
-        part.Size = UDim2.new(0, data.w, 0, data.h)
-        part.Position = UDim2.new(0.5, data.x, 0.5, data.y)
-        part.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        part.BorderSizePixel = 0
-        part.Parent = crosshair
-    end
-end
-
 if CONFIG.CrosshairStyle == "DOT" then createDot() else createCross() end
 
 -- ============================================================
@@ -274,7 +261,7 @@ local function getVelocity(plr)
 end
 
 -- ============================================================
---  VISIBILITY CHECK (КАЖДЫЙ КАДР)
+--  VISIBILITY CHECK (RAYCAST)
 -- ============================================================
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
@@ -307,7 +294,7 @@ local function isVisible(plr)
 end
 
 -- ============================================================
---  X-RAY (ВСЕГДА ВКЛЮЧЁН, ВНЕ ЗАВИСИМОСТИ ОТ FOV)
+--  X-RAY (PERFECT BOUNDING BOX)
 -- ============================================================
 local function createBox(plr)
     if XRayState.boxes[plr] then return end
@@ -383,6 +370,7 @@ local function updateBox(plr)
     local up = modelCF.UpVector
     local look = modelCF.LookVector
     
+    -- 8 углов Bounding Box
     local corners = {
         center + right*sx + up*sy + look*sz,
         center + right*sx + up*sy - look*sz,
@@ -474,7 +462,7 @@ local function updateXRay()
 end
 
 -- ============================================================
---  ПОИСК ЛУЧШЕЙ ЦЕЛИ (КАЖДЫЙ КАДР, БЕЗ ЗАДЕРЖЕК)
+--  ПОИСК ЛУЧШЕЙ ЦЕЛИ (КАЖДЫЙ КАДР)
 -- ============================================================
 local function findBestTarget()
     local center = getCenter()
@@ -484,20 +472,13 @@ local function findBestTarget()
     
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= Player and isAlive(plr) then
-            -- Проверка видимости
-            if not isVisible(plr) then 
-                continue 
-            end
+            if not isVisible(plr) then continue end
             
             local part = getAimPart(plr)
-            if not part then 
-                continue 
-            end
+            if not part then continue end
             
             local screenPos = getScreenPos(part)
-            if not screenPos then 
-                continue 
-            end
+            if not screenPos then continue end
             
             local dx = screenPos.X - center.X
             local dy = screenPos.Y - center.Y
@@ -517,151 +498,134 @@ local function findBestTarget()
 end
 
 -- ============================================================
---  ПОЛУЧЕНИЕ ДАННЫХ ЦЕЛИ
+--  ОБНОВЛЕНИЕ ЦЕЛИ (КАЖДЫЙ КАДР)
 -- ============================================================
-local function getTargetData(plr)
-    if not plr or not isAlive(plr) then return nil end
+local function updateTargetData(plr)
+    if not plr or not isAlive(plr) then
+        return nil, nil, nil
+    end
     
     local part = getAimPart(plr)
-    if not part then return nil end
+    if not part then
+        return nil, nil, nil
+    end
     
-    return {
-        player = plr,
-        part = part,
-        position = part.Position,
-        velocity = getVelocity(plr),
-        screenPos = getScreenPos(part),
-        worldDist = getWorldDistance(plr),
-    }
+    local pos = part.Position
+    local screenPos = getScreenPos(part)
+    local vel = getVelocity(plr)
+    
+    return part, pos, screenPos, vel
 end
 
 -- ============================================================
---  ПРЕДИКЦИЯ (АВТОМАТИЧЕСКАЯ)
+--  ПРЕДИКЦИЯ
 -- ============================================================
-local function calculatePrediction(targetData)
-    if not targetData then return nil end
-    
-    local vel = targetData.velocity
-    if vel.Magnitude < 0.1 then 
-        return targetData.position 
+local function calculatePrediction(pos, vel, dist)
+    if vel.Magnitude < 0.1 then
+        return pos
     end
     
-    local dist = targetData.worldDist
-    if dist > CONFIG.DistanceLimit then 
-        return targetData.position 
-    end
-    
-    -- Автоматический расчёт силы предикции
     local speed = vel.Magnitude
-    local baseTime = 0.3
-    local predTime = math.min(baseTime * (speed / 20), 1.5)
+    local predTime = math.min(CONFIG.PredictionStrength * (speed / 30), 1.5)
     
-    return targetData.position + vel * predTime
+    return pos + vel * predTime
 end
 
 -- ============================================================
---  ОСНОВНАЯ ЛОГИКА АИМА (МГНОВЕННАЯ)
+--  ОСНОВНАЯ ЛОГИКА АИМА
 -- ============================================================
 local function processAim()
-    -- X-Ray обновляется всегда
+    -- X-Ray всегда обновляется
     updateXRay()
     
-    if not State.enabled then 
-        return 
+    if not State.enabled then
+        return
     end
     
-    -- Поиск цели всегда
-    local best, bestDist = findBestTarget()
+    local center = getCenter()
+    local foundTarget = false
     
-    -- Если есть лучшая цель и она видима
-    if best and isVisible(best) then
-        State.lostTimer = 0
+    -- 1. ОБНОВЛЯЕМ ТЕКУЩУЮ ЦЕЛЬ
+    if State.target and isAlive(State.target) then
+        local part, pos, screenPos, vel = updateTargetData(State.target)
         
-        -- Обновляем цель если есть новая или текущая умерла
-        if not State.target or not isAlive(State.target) or not isVisible(State.target) then
-            State.target = best
-            State.targetData = getTargetData(best)
-            State.waitingForTarget = false
+        if part and screenPos and isVisible(State.target) then
+            State.targetPart = part
+            State.targetPos = pos
+            State.targetScreen = screenPos
+            State.lostTimer = 0
+            foundTarget = true
             
-            status.Text = "LOCKED: " .. best.Name
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: " .. best.Name
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+            -- Сопровождение
+            local targetPos = calculatePrediction(pos, vel, getWorldDistance(State.target))
+            local newCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+            Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Smoothness)
         end
-        
-        -- Если текущая цель не лучшая, но жива и видима - держим её
-        if State.target and State.target ~= best and isAlive(State.target) and isVisible(State.target) then
-            -- Проверяем, не стала ли новая цель значительно ближе
-            local currentData = State.targetData
-            local currentDist = currentData and currentData.screenPos and (function()
-                local center = getCenter()
-                local dx = currentData.screenPos.X - center.X
-                local dy = currentData.screenPos.Y - center.Y
-                return dx*dx + dy*dy
-            end)() or math.huge
-            
-            if bestDist < currentDist - 50 then
-                State.target = best
-                State.targetData = getTargetData(best)
-                status.Text = "SWITCHED: " .. best.Name
-                status.TextColor3 = Color3.fromRGB(100, 255, 200)
-                targetLabel.Text = "TARGET: " .. best.Name
-                targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-            end
-        end
-    else
-        -- Нет целей
+    end
+    
+    -- 2. ЕСЛИ ЦЕЛЬ ПОТЕРЯНА - ИЩЕМ НОВУЮ
+    if not foundTarget then
         State.lostTimer = State.lostTimer + 0.016
         
         if State.lostTimer > CONFIG.LostTimeout then
+            -- Сбрасываем старую цель
             State.target = nil
-            State.targetData = nil
-            State.waitingForTarget = true
+            State.targetPart = nil
+            State.targetPos = nil
+            State.targetScreen = nil
+            State.hasTarget = false
             
-            status.Text = "WAITING..."
-            status.TextColor3 = Color3.fromRGB(255, 200, 100)
-            targetLabel.Text = "SEARCHING..."
-            targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-        end
-    end
-    
-    -- Если цель потеряна, но режим ожидания включён, ищем новую
-    if State.waitingForTarget then
-        local newTarget, _ = findBestTarget()
-        if newTarget and isVisible(newTarget) then
-            State.target = newTarget
-            State.targetData = getTargetData(newTarget)
-            State.waitingForTarget = false
-            State.lostTimer = 0
+            -- Ищем новую цель
+            local best, bestDist = findBestTarget()
             
-            status.Text = "LOCKED: " .. newTarget.Name
-            status.TextColor3 = Color3.fromRGB(100, 255, 200)
-            targetLabel.Text = "TARGET: " .. newTarget.Name
-            targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
-        end
-    end
-    
-    -- СОПРОВОЖДЕНИЕ (МГНОВЕННОЕ)
-    if State.targetData and State.target and isAlive(State.target) and isVisible(State.target) then
-        State.targetData = getTargetData(State.target)
-        if State.targetData then
-            local targetPos = calculatePrediction(State.targetData)
-            
-            if targetPos then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPos)
-                if onScreen then
-                    local center = getCenter()
-                    local dx = screenPos.X - center.X
-                    local dy = screenPos.Y - center.Y
-                    local dist = dx*dx + dy*dy
+            if best then
+                local part, pos, screenPos, vel = updateTargetData(best)
+                if part and screenPos then
+                    State.target = best
+                    State.targetPart = part
+                    State.targetPos = pos
+                    State.targetScreen = screenPos
+                    State.hasTarget = true
+                    State.lostTimer = 0
+                    foundTarget = true
                     
-                    if dist > CONFIG.DeadZone then
-                        local newCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                        Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Smoothness)
-                    end
+                    status.Text = "LOCKED: " .. best.Name
+                    status.TextColor3 = Color3.fromRGB(100, 255, 200)
+                    targetLabel.Text = "TARGET: " .. best.Name
+                    targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+                    
+                    -- Сразу применяем наведение
+                    local targetPos = calculatePrediction(pos, getVelocity(best), getWorldDistance(best))
+                    local newCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                    Camera.CFrame = Camera.CFrame:Lerp(newCF, CONFIG.Smoothness)
+                end
+            else
+                if not State.hasTarget then
+                    status.Text = "NO TARGET"
+                    status.TextColor3 = Color3.fromRGB(255, 200, 100)
+                    targetLabel.Text = "SEARCHING..."
+                    targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
                 end
             end
         end
+    end
+    
+    -- 3. ПРОВЕРКА УБИЙСТВА
+    if State.target and not isAlive(State.target) then
+        State.killCount = State.killCount + 1
+        killsLabel.Text = "KILLS: " .. State.killCount
+        
+        State.target = nil
+        State.targetPart = nil
+        State.targetPos = nil
+        State.targetScreen = nil
+        State.hasTarget = false
+        State.lostTimer = CONFIG.LostTimeout + 0.1  -- Форсируем поиск
+        
+        status.Text = "TARGET ELIMINATED"
+        status.TextColor3 = Color3.fromRGB(255, 200, 100)
+        targetLabel.Text = "SEARCHING..."
+        targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
     end
 end
 
@@ -672,37 +636,32 @@ local function toggleAim()
     State.enabled = not State.enabled
     
     if State.enabled then
-        local nearest, _ = findBestTarget()
-        if not nearest then
-            status.Text = "WAITING..."
+        -- Сразу ищем цель
+        local best, _ = findBestTarget()
+        
+        if best then
+            local part, pos, screenPos, vel = updateTargetData(best)
+            if part and screenPos then
+                State.target = best
+                State.targetPart = part
+                State.targetPos = pos
+                State.targetScreen = screenPos
+                State.hasTarget = true
+                State.lostTimer = 0
+                
+                status.Text = "LOCKED: " .. best.Name
+                status.TextColor3 = Color3.fromRGB(100, 255, 200)
+                targetLabel.Text = "TARGET: " .. best.Name
+                targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
+            end
+        else
+            State.hasTarget = false
+            status.Text = "NO TARGET"
             status.TextColor3 = Color3.fromRGB(255, 200, 100)
             targetLabel.Text = "SEARCHING..."
             targetLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-            btnToggle.Text = "ACTIVE"
-            btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)
-            btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
-            State.waitingForTarget = true
-            
-            fovCircle.Visible = CONFIG.ShowFOV
-            crosshair.Visible = true
-            
-            if not XRayState.container then
-                XRayState.container = Instance.new("Folder")
-                XRayState.container.Name = "XRay"
-                XRayState.container.Parent = gui
-            end
-            return
         end
         
-        State.target = nearest
-        State.targetData = getTargetData(nearest)
-        State.lostTimer = 0
-        State.waitingForTarget = false
-        
-        status.Text = "LOCKED: " .. nearest.Name
-        status.TextColor3 = Color3.fromRGB(100, 255, 200)
-        targetLabel.Text = "TARGET: " .. nearest.Name
-        targetLabel.TextColor3 = Color3.fromRGB(100, 255, 200)
         btnToggle.Text = "DEACTIVATE"
         btnToggle.BackgroundColor3 = Color3.fromRGB(0, 80, 40)
         btnToggle.TextColor3 = Color3.fromRGB(200, 255, 200)
@@ -717,9 +676,11 @@ local function toggleAim()
         end
     else
         State.target = nil
-        State.targetData = nil
+        State.targetPart = nil
+        State.targetPos = nil
+        State.targetScreen = nil
+        State.hasTarget = false
         State.lostTimer = 0
-        State.waitingForTarget = false
         State.killCount = 0
         
         status.Text = "DISABLED"
@@ -784,16 +745,8 @@ btnAimPart.MouseButton1Click:Connect(switchAimPart)
 btnXRay.MouseButton1Click:Connect(toggleXRay)
 
 winButtons.minimize.MouseButton1Click:Connect(function()
+    State.minimized = not State.minimized
     if State.minimized then
-        main:TweenSize(UDim2.new(0, 280, 0, 420), "Out", "Quad", 0.3, true)
-        for _, child in ipairs(main:GetChildren()) do
-            if child:IsA("TextLabel") or child:IsA("TextButton") then
-                child.Visible = true
-            end
-        end
-        winButtons.minimize.Text = "─"
-        State.minimized = false
-    else
         main:TweenSize(UDim2.new(0, 200, 0, 36), "Out", "Quad", 0.3, true)
         for _, child in ipairs(main:GetChildren()) do
             if child:IsA("TextLabel") or (child:IsA("TextButton") and child ~= header) then
@@ -801,7 +754,14 @@ winButtons.minimize.MouseButton1Click:Connect(function()
             end
         end
         winButtons.minimize.Text = "□"
-        State.minimized = true
+    else
+        main:TweenSize(UDim2.new(0, 280, 0, 420), "Out", "Quad", 0.3, true)
+        for _, child in ipairs(main:GetChildren()) do
+            if child:IsA("TextLabel") or child:IsA("TextButton") then
+                child.Visible = true
+            end
+        end
+        winButtons.minimize.Text = "─"
     end
 end)
 
@@ -848,10 +808,20 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- ============================================================
---  ГЛАВНЫЙ ЦИКЛ (ОДИН НА ВСЁ)
+--  ГЛАВНЫЙ ЦИКЛ
 -- ============================================================
 RunService.RenderStepped:Connect(processAim)
 
 -- ============================================================
 --  СТАРТ
--- =================================
+-- ============================================================
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "AIM LOCK v25",
+    Text = "1 - Toggle | 2 - Head/Body | 3 - X-Ray",
+    Duration = 4
+})
+
+print("✅ AIM LOCK v25.0 LOADED")
+print("📌 1 - Toggle ON/OFF")
+print("📌 2 - Switch aim (HEAD ↔ BODY)")
+print("📌 3 - Toggle X-RAY")
